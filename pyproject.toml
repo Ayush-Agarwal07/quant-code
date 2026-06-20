@@ -1,0 +1,52 @@
+[build-system]
+requires = ["flit_core>=3.11,<5"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "quant-forge"
+version = "0.1.0"
+description = "A deterministic prototype of an agentic quant research layer"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Quant Forge contributors" }]
+dependencies = [
+  "pydantic>=2.7,<3",
+  "python-dotenv>=1.0,<2",
+  "rich>=13.7,<15",
+  "typer>=0.12,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.10,<2",
+  "pytest>=8.2,<10",
+  "ruff>=0.5,<1",
+]
+
+[project.scripts]
+qf = "quant_forge.cli:app"
+
+[tool.flit.module]
+name = "quant_forge"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+exclude = ["tests/"]
