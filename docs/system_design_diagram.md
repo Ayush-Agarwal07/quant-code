@@ -1,220 +1,218 @@
 # System Design Diagram
 
-This design shows the target project flow after the package mismatch is fixed. The
-recommended repair is to rename `quant_forge/` back to `quant_forge/`, because the
-project name, CLI entry point, docs, tests, and existing imports already use that identity.
-
 ## Presentation Architecture
-
-This version avoids renderer-fragile Mermaid syntax: no HTML line breaks, no links directly
-to subgraphs, no schema labels with square brackets, and no text embedded inside dotted
-edges.
 
 ```mermaid
 flowchart LR
-    A["Judge or user"] --> B["qf demo"]
-    A --> C["qf run objective"]
-    B --> D["Mock model provider"]
-    C --> D
-    D --> E["Agentic research workflow"]
-    E --> F["Feasibility gate"]
-    F --> G["Strategy specs"]
-    F --> H["Rejected or deferred hypotheses"]
-    G --> I["Research critiques"]
-    I --> J["Experiment plan stubs"]
-    J --> K["Backtest stub not executed"]
-    K --> L["Research packet"]
-    H --> L
-    L --> M["Terminal demo"]
-    L --> N["Markdown Devpost summary"]
-    L --> O["JSONL trace export"]
-    L --> P["Memory write proposals"]
-    P --> Q["Future Redis memory stub"]
+    A["User or judge"] --> B["quantcode research objective"]
+    A --> C["quantcode research-url url"]
+    A --> D["quantcode compact runs/latest"]
+    A --> E["quantcode memory search query"]
 
-    style F fill:#fff4cc,stroke:#946200,stroke-width:2px
-    style K fill:#ffe1e1,stroke:#9b1c1c,stroke-width:2px
-    style Q fill:#e7f0ff,stroke:#2455a6,stroke-width:2px
+    B --> F["Agent pipeline"]
+    C --> G["BrowserResearcherAgent\nBrowserbase / Stagehand"]
+    G --> F
+
+    F --> H["Feasibility gate"]
+    H --> I["StrategyWriterAgent\nwrites YAML files"]
+    H --> J["Deferred hypotheses"]
+
+    I --> K["ResearchCriticAgent"]
+    K --> L["MemoryCuratorAgent\nwrites to Redis"]
+    L --> M["CompactorAgent\nResearchTrace Compiler"]
+
+    M --> N["workspace/memory/\ncontext pack"]
+    L --> O["Redis\nTier 2 episodes\nTier 3 lessons"]
+    I --> P["workspace/strategies/\nYAML specs"]
+    F --> Q["workspace/research_runs/\nrun JSON"]
+
+    Q --> R["Local web dashboard"]
+    O --> R
+    N --> R
+
+    R --> S["Run timeline"]
+    R --> T["Strategy graph"]
+    R --> U["Memory explorer"]
+    R --> V["Compaction view"]
+    R --> W["Critique view"]
+
+    style H fill:#fff4cc,stroke:#946200,stroke-width:2px
+    style O fill:#e7f0ff,stroke:#2455a6,stroke-width:2px
+    style R fill:#e8ffe8,stroke:#247a24,stroke-width:2px
 ```
+
+---
 
 ## Core Agent Flow
 
 ```mermaid
 flowchart TD
-    R["Research objective"] --> A1["Research Director"]
-    A1 --> A2["Prior Art Discovery"]
-    A2 --> A3["Market Mechanism Agent"]
-    A3 --> A4["Hypothesis Agent"]
-    A4 --> A5{"Data Feasibility Gate"}
-    A5 -->|Feasible with current or proxy data| A6["Strategy Formalizer"]
-    A5 -->|Missing data or unsafe proxy| A7["Deferred hypothesis"]
-    A6 --> A8["Research Critic"]
-    A8 --> A9["Experiment Planner"]
-    A9 --> A10["Backtest Runner Stub"]
-    A10 --> A11["Memory Proposal Agent"]
-    A7 --> A12["Structured Research Packet"]
-    A11 --> A12
+    R["Research objective"] --> PRE["Retrieve Tier 3 lessons\nfrom Redis"]
+    PRE --> A1["ResearchDirectorAgent"]
+    A1 --> A2["PriorArtDiscoveryAgent\noffline catalog"]
+    A2 --> A3["HypothesisGeneratorAgent"]
+    A3 --> A4{"DataFeasibilityAgent\nFeasibility gate"}
 
-    style A5 fill:#fff4cc,stroke:#946200,stroke-width:2px
-    style A7 fill:#f1f1f1,stroke:#666666,stroke-width:1px
-    style A10 fill:#ffe1e1,stroke:#9b1c1c,stroke-width:2px
+    URL["research-url command"] --> BB["BrowserResearcherAgent\nBrowserbase / Stagehand"]
+    BB --> A3
+
+    A4 -->|testable_now or testable_with_proxy| A5["StrategyWriterAgent\nDSL + YAML file write"]
+    A4 -->|missing data or unsafe proxy| A6["Deferred hypothesis\nstored in packet"]
+
+    A5 --> A7["ResearchCriticAgent\nleakage + cost + complexity"]
+    A7 --> A8["ExperimentPlannerAgent stub"]
+    A8 --> A9["BacktestRunnerStub\nstatus = not_executed"]
+    A9 --> A10["MemoryCuratorAgent\nTier 2 + 3 Redis writes"]
+    A10 --> A11["CompactorAgent\nResearchTrace Compiler"]
+    A6 --> A12["QuantResearchPacket"]
+    A11 --> A12
+    A12 --> A13["workspace/research_runs/run_N.json"]
+
+    style A4 fill:#fff4cc,stroke:#946200,stroke-width:2px
+    style A6 fill:#f1f1f1,stroke:#666666,stroke-width:1px
+    style A9 fill:#ffe1e1,stroke:#9b1c1c,stroke-width:2px
+    style PRE fill:#e7f0ff,stroke:#2455a6,stroke-width:2px
 ```
 
-## Integrations We Can Incorporate Safely
+---
+
+## Integrations
 
 ```mermaid
 flowchart TD
-    P["QuantResearchPacket"] --> D1["Hackathon demo view"]
-    P --> D2["Markdown summary export"]
-    P --> D3["Trace JSONL export"]
-    P --> D4["Decision summaries"]
-    P --> D5["Memory write proposals"]
+    P["QuantResearchPacket"] --> D1["Local web dashboard\nrun timeline + strategy graph"]
+    P --> D2["workspace/reports/run_N.md\nMarkdown summary"]
+    P --> D3["Arize\nspan per agent step"]
+    P --> D4["Decision summaries\naccept / revise / reject"]
 
-    D1 --> J["Judges see agent collaboration"]
-    D2 --> K["Devpost submission"]
-    D3 --> L["Arize or Sentry style observability"]
-    D4 --> M["Why accepted or rejected"]
-    D5 --> N["Future Redis vector memory"]
+    MC["MemoryCuratorAgent"] --> R2["Redis Tier 2\nstrategy episodes"]
+    MC --> R3["Redis Tier 3\nsemantic lessons"]
+    CA["CompactorAgent"] --> R1["Redis Tier 1\nworking memory"]
+    CA --> WM["workspace/memory/\ncontext pack JSON"]
 
-    O["Prior art themes"] --> W["Future web research collector"]
-    W --> X["Browserbase ready but off by default"]
+    TF["Failed tool call\nSchema error\nRedis unavailable"] --> SE["Sentry\nerror capture"]
 
-    Y["Experiment plan stubs"] --> Z["Future deterministic backtester"]
-    Z --> AA["No live trading in hackathon"]
+    URL["research-url command"] --> BBF["browserbase_fetch tool\nStagehand extraction"]
+    BBF --> HYP["Hypothesis extraction\n→ PriorArtTheme list"]
 
-    style N fill:#e7f0ff,stroke:#2455a6,stroke-width:2px
-    style L fill:#e8ffe8,stroke:#247a24,stroke-width:2px
-    style AA fill:#ffe1e1,stroke:#9b1c1c,stroke-width:2px
+    STUB["BacktestRunnerStub"] --> NS["not_executed\nno live trading"]
+
+    style R2 fill:#e7f0ff,stroke:#2455a6,stroke-width:2px
+    style R3 fill:#e7f0ff,stroke:#2455a6,stroke-width:2px
+    style D3 fill:#e8ffe8,stroke:#247a24,stroke-width:2px
+    style SE fill:#fff0e7,stroke:#b85000,stroke-width:2px
+    style NS fill:#ffe1e1,stroke:#9b1c1c,stroke-width:2px
 ```
 
-## Demo Runtime Flow
+---
+
+## Demo Runtime Sequence
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor User
-    participant CLI as qf CLI
-    participant Router as ModelRouter
-    participant WF as run_quant_research
-    participant Agents as Research Agents
-    participant Tools as Deterministic Tools
-    participant Gate as Feasibility Gate
-    participant Obs as Observability
-    participant Report as Reporting
+    participant CLI as quantcode CLI
+    participant Redis as Redis (3-tier)
+    participant Agents as Agent pipeline
+    participant BB as Browserbase / Stagehand
+    participant Tools as Deterministic tools
+    participant Arize as Arize tracer
+    participant WS as workspace/
 
-    User->>CLI: qf demo with summary and trace export
-    CLI->>Router: provider = mock
-    Router-->>CLI: MockLLMClient
-    CLI->>WF: canonical underreaction objective
-    WF->>Agents: ResearchDirectorAgent
-    Agents-->>WF: ResearchAgenda
-    WF->>Agents: PriorArtDiscoveryAgent
-    Agents->>Tools: offline anomaly catalog search
+    User->>CLI: quantcode research "Find underreaction strategies"
+    CLI->>Redis: retrieve Tier 3 semantic lessons
+    Redis-->>CLI: prior failure lessons
+    CLI->>Agents: ResearchDirectorAgent with lesson context
+    Agents-->>CLI: ResearchAgenda
+    CLI->>Agents: PriorArtDiscoveryAgent
+    Agents->>Tools: offline anomaly catalog
     Tools-->>Agents: prior art themes
-    WF->>Agents: MarketMechanismAgent
-    Agents-->>WF: market mechanisms
-    WF->>Agents: HypothesisGenerationAgent
-    Agents-->>WF: candidate hypotheses
-    WF->>Gate: assess required data and proxies
-    Gate->>Tools: data catalog + proxy suggester
-    Tools-->>Gate: availability and proxy result
-    Gate-->>WF: data feasibility reports
-    WF->>Agents: StrategyFormalizerAgent for feasible hypotheses only
-    Agents->>Tools: DSL and feature validation
-    Tools-->>Agents: validation result
-    Agents-->>WF: strategy specs
-    WF->>Agents: ResearchCriticAgent
-    Agents->>Tools: leakage, complexity, cost, mutation checks
-    Agents-->>WF: critiques
-    WF->>Agents: ExperimentPlannerAgent
-    Agents-->>WF: experiment plan stubs
-    WF-->>WF: BacktestRunnerStub returns not_executed
-    WF->>Agents: MemoryProposalAgent
-    Agents-->>WF: memory write proposals
-    WF-->>CLI: QuantResearchPacket
-    CLI->>Obs: build AgentRunMetrics and decision summaries
-    CLI->>Report: render judge-ready Markdown
-    Obs-->>User: trace JSONL file
-    Report-->>User: Markdown summary file
-    CLI-->>User: terminal demo summary
+    CLI->>Agents: HypothesisGeneratorAgent
+    Agents-->>CLI: candidate hypotheses
+    CLI->>Agents: DataFeasibilityAgent
+    Agents->>Tools: data catalog + proxy suggester
+    Tools-->>Agents: feasibility reports
+    CLI->>Agents: StrategyWriterAgent
+    Agents->>WS: write workspace/strategies/strategy_N.yaml
+    Agents-->>CLI: strategy specs
+    CLI->>Agents: ResearchCriticAgent
+    Agents->>Tools: leakage + complexity + cost checks
+    Agents-->>CLI: critiques
+    CLI->>Agents: MemoryCuratorAgent
+    Agents->>Redis: write Tier 2 episode
+    Agents->>Redis: promote Tier 3 lesson
+    CLI->>Agents: CompactorAgent
+    Agents->>Arize: emit spans for all agent steps
+    Agents->>WS: write workspace/memory/context_pack_N.json
+    Agents->>Redis: store context pack in Tier 1
+    CLI->>WS: write workspace/research_runs/run_N.json
+    CLI-->>User: summary + compression ratio
+
+    User->>CLI: quantcode research "Find another earnings drift strategy"
+    CLI->>Redis: retrieve Tier 3 lesson
+    Redis-->>CLI: "Prior gap-volume proxy failed without event dates"
+    CLI->>Agents: ResearchDirectorAgent with retrieved lesson
+    Agents-->>CLI: ResearchAgenda that requires event-date filter or marks proxy as weak
 ```
 
-## Hackathon Direction
+---
 
-Build the presentation around one sentence:
+## Compaction Before/After
 
-> Quant Forge turns broad quant research questions into strict, data-aware strategy
-> specifications while refusing to run unsafe execution or unproven backtests.
+```mermaid
+flowchart LR
+    T["Full agent trace\n18,400 tokens"] --> C["ResearchTrace Compiler\nCompactorAgent"]
+    C --> P["Context pack\n1,050 tokens\n17.5× compression"]
+    P --> L["Retained:\n4 strategy lessons\n2 failed-pattern warnings\n3 data constraints\n2 mutation rules"]
+    P --> PR["Provenance links\nto run_N.json"]
 
-The demo should show four things clearly:
-
-1. **Multi-agent collaboration**: each agent has one job, from research agenda to memory
-   proposal.
-2. **Feasibility gate**: hypotheses are narrowed before they can become strategy specs.
-3. **Observability**: traces and decision summaries explain why ideas passed or failed.
-4. **Safe boundaries**: backtesting, Redis memory, web research, data connectors, and broker
-   integrations are explicit stubs unless future milestones implement them.
-
-## What To Incorporate Now
-
-| Area | Add Now | Keep Stubbed |
-|---|---|---|
-| Package identity | Fix import/package mismatch before features | None |
-| Demo experience | `qf demo` with polished terminal output | No live provider requirement |
-| Devpost output | `--summary-md` / `--devpost-summary` Markdown export | No generated performance claims |
-| Observability | JSONL trace export, validation counts, decision summaries | External SaaS integrations |
-| Redis fit | `RedisMemoryStoreStub` interface and docs | No Redis dependency or network |
-| Multi-agent framing | `docs/hackathon_pitch.md` and visible agent collaboration diagram | No unnecessary agent orchestration platform |
-| Browserbase fit | `WebResearchCollectorStub` future interface | No live scraping in default mode |
-| Backtesting | Preserve `BacktestRunnerStub(status="not_executed")` | Real backtester |
-| Broker/data | Keep explicit stubs | Broker integration, live market data |
-
-## Proposed File Additions
-
-```text
-quant_forge/
-  demo.py
-  reporting/
-    __init__.py
-    demo_summary.py
-    markdown.py
-  observability/
-    __init__.py
-    schemas.py
-    trace_export.py
-    summaries.py
-  future/
-    redis_memory.py
-    web_research.py
-
-docs/
-  system_design_diagram.md
-  hackathon_pitch.md
-  redis_memory_design.md
-  observability.md
+    style T fill:#ffe1e1,stroke:#9b1c1c,stroke-width:1px
+    style P fill:#e7f0ff,stroke:#2455a6,stroke-width:2px
+    style C fill:#fff4cc,stroke:#946200,stroke-width:1px
 ```
 
-If the project chooses `quant_forge` as the final package name instead, use the same structure
-under `quant_forge/` and update `pyproject.toml`, tests, imports, docs, and CLI entrypoints in
-one mechanical pass.
+---
 
-## Acceptance Path
+## Hackathon Pitch
 
-1. Fix the package mismatch and reinstall editable mode.
-2. Verify the existing workflow still passes.
-3. Add demo and reporting modules.
-4. Add observability models and JSONL export.
-5. Add Redis and web-research stubs.
-6. Add hackathon pitch docs.
-7. Run:
+Build the demo around one sentence:
 
-```bash
-pytest
-ruff check .
-mypy quant_forge
-qf demo
-qf demo --summary-md demo.md --trace-jsonl traces.jsonl
+> QuantCode is Claude Code for systematic strategy research: a local agent that reads a quant
+> workspace, researches market hypotheses, writes strategy specs, critiques them, stores
+> outcome-grounded memory in Redis, and compacts long research traces into reusable context.
+
+Four things to show clearly:
+
+1. **Workspace I/O** — agent reads and writes files like a developer tool.
+2. **Redis memory across runs** — the agent avoids repeating past failures because it retrieves
+   lessons from Tier 3 before generating new hypotheses.
+3. **Measurable compaction** — print compression ratio and retained-lesson count after every run.
+4. **Safe boundaries** — backtesting is stubbed, broker is disabled, no financial advice is implied.
+
+## What To Show in the 3-Minute Demo
+
 ```
+1. "This is QuantCode, Claude Code for strategy research."
 
-The final pitch remains: a safe agentic research layer that reasons broadly, narrows ideas
-through feasibility gates, emits strict strategy specifications, and refuses to imply live
-execution or proven profitability.
+2. CLI: quantcode research "Find short-horizon equity strategies based on market underreaction."
+
+3. Agent generates:
+   - research themes, hypotheses, feasibility reports
+   - strategy YAML in workspace/strategies/
+   - markdown report in workspace/reports/
+
+4. Dashboard: strategy graph, critique view, memory writes.
+
+5. CLI: quantcode compact runs/latest --budget 1000
+   - prints: 18,400 tokens → 1,050 tokens (17.5×)
+   - shows Redis Tier 2/3 entries and provenance links
+
+6. CLI: quantcode research "Find another earnings drift strategy."
+   - agent retrieves Tier 3 lesson:
+     "Prior gap-volume proxy failed without event dates."
+   - generates strategy with event-date requirement or explicit proxy warning
+
+7. Close: "The backtester is stubbed today, but the research loop, Redis memory,
+           and token compaction layer are implemented."
+```
