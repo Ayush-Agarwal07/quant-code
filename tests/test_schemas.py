@@ -3,12 +3,12 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from quant_forge.strategy_research.schemas import (
+from quant_code.strategy_research.schemas import (
     AgentTrace,
-    BacktestResultStub,
     CandidateHypothesis,
     DataFeasibilityReport,
     ExperimentPlanStub,
+    ExperimentResultStub,
     MarketMechanism,
     MemoryWriteProposalStub,
     PriorArtTheme,
@@ -19,7 +19,7 @@ from quant_forge.strategy_research.schemas import (
     StrategyRule,
     StrategySpec,
 )
-from quant_forge.strategy_research.workflow import run_quant_research
+from quant_code.strategy_research.workflow import run_quant_research
 
 
 def test_workflow_artifacts_validate_and_round_trip() -> None:
@@ -32,7 +32,7 @@ def test_workflow_artifacts_validate_and_round_trip() -> None:
     assert all(isinstance(item, StrategySpec) for item in packet.strategy_specs)
     assert all(isinstance(item, StrategyCritique) for item in packet.critiques)
     assert all(isinstance(item, ExperimentPlanStub) for item in packet.experiment_plans)
-    assert all(isinstance(item, BacktestResultStub) for item in packet.backtest_results)
+    assert all(isinstance(item, ExperimentResultStub) for item in packet.experiment_results)
     assert all(isinstance(item, MemoryWriteProposalStub) for item in packet.memory_proposals)
     assert all(isinstance(item, AgentTrace) for item in packet.agent_traces)
     assert QuantResearchPacket.model_validate(packet.model_dump()) == packet

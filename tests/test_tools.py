@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from quant_forge.strategy_research.schemas import (
+from quant_code.strategy_research.schemas import (
     PortfolioRules,
     StrategyRule,
     StrategySpec,
 )
-from quant_forge.strategy_research.tools.data_catalog import AvailableDataCatalogTool
-from quant_forge.strategy_research.tools.feasibility import (
+from quant_code.strategy_research.tools.data_catalog import AvailableDataCatalogTool
+from quant_code.strategy_research.tools.feasibility import (
     DataRequirementMapperTool,
     ProxyFeatureSuggesterTool,
 )
-from quant_forge.strategy_research.tools.feature_catalog import FeatureCatalogTool
-from quant_forge.strategy_research.tools.research_catalog import KnownAnomalyCatalogTool
-from quant_forge.strategy_research.tools.validation import (
+from quant_code.strategy_research.tools.feature_catalog import FeatureCatalogTool
+from quant_code.strategy_research.tools.research_catalog import KnownAnomalyCatalogTool
+from quant_code.strategy_research.tools.validation import (
     CostRiskHeuristicTool,
     DSLValidationTool,
     LeakageCheckTool,

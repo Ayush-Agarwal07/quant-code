@@ -4,7 +4,7 @@ import json
 
 from typer.testing import CliRunner
 
-from quant_forge.cli import app
+from quant_code.cli import app
 
 runner = CliRunner()
 
@@ -40,4 +40,4 @@ def test_cli_run_mock_mode(tmp_path) -> None:
     assert output.exists()
     packet = json.loads(output.read_text(encoding="utf-8"))
     assert packet["request"]["objective"].startswith("Find robust")
-    assert packet["backtest_results"][0]["status"] == "not_executed"
+    assert packet["experiment_results"][0]["status"] == "not_executed"

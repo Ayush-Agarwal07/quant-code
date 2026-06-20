@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from quant_forge.strategy_research.schemas import QuantResearchPacket
-from quant_forge.strategy_research.workflow import run_quant_research
+from quant_code.strategy_research.schemas import QuantResearchPacket
+from quant_code.strategy_research.workflow import run_quant_research
 
 
 def test_quant_research_workflow_returns_complete_packet_without_live_apis() -> None:
@@ -16,8 +16,8 @@ def test_quant_research_workflow_returns_complete_packet_without_live_apis() -> 
     assert len(packet.strategy_specs) >= 1
     assert len(packet.critiques) == len(packet.strategy_specs)
     assert len(packet.experiment_plans) == len(packet.strategy_specs)
-    assert len(packet.backtest_results) == len(packet.experiment_plans)
-    assert all(result.status == "not_executed" for result in packet.backtest_results)
+    assert len(packet.experiment_results) == len(packet.experiment_plans)
+    assert all(result.status == "not_executed" for result in packet.experiment_results)
     assert len(packet.memory_proposals) >= 1
     assert all(proposal.status == "proposed_not_written" for proposal in packet.memory_proposals)
     assert len(packet.agent_traces) == 9

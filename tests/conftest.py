@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from quant_forge.strategy_research.schemas import (
+from quant_code.strategy_research.schemas import (
     PortfolioRules,
     RankingRule,
     RiskRules,

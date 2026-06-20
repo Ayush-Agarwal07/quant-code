@@ -1,106 +1,80 @@
-# Quant Forge
+# QuantCode
 
-Quant Forge is a clean, deterministic prototype of an **agentic quant research
-layer**. It models the workflow of a human quant researcher: a broad objective becomes a
-research agenda, prior-art themes, mechanisms, falsifiable hypotheses, data-feasibility
-checks, narrow strategy specifications, critiques, and experiment-plan stubs.
+QuantCode is a prototype of **Claude Code for systematic strategy research**: a local agent that
+reads a quant workspace, researches market hypotheses, writes strategy specs, critiques feasibility
+and leakage, stores research memory in Redis, and compacts long traces into reusable context.
 
 The core philosophy is:
 
 > **Broad research, narrow execution.**
 
-Agents may reason broadly about market anomalies and mechanisms. Only ideas that pass an
-explicit data-feasibility gate can become structured `StrategySpec` objects suitable for a
-future deterministic backtester.
+Agents may reason broadly about market anomalies and mechanisms. Only ideas that pass explicit
+feasibility and validation gates can become structured strategy specifications.
 
 ## What It Is
 
-- A modular research workflow with focused, traceable agents
-- A strict Pydantic v2 schema layer for all research artifacts
-- An offline research/data/feature catalog and deterministic validation tools
-- A no-network `MockLLMClient` and deterministic demo mode
-- A production-oriented boundary around future backtesting, memory, data, and broker work
+- A CLI-first agentic research workflow
+- A workspace-oriented tool that writes strategy YAML, run JSON, reports, and context packs
+- A strict schema layer for research artifacts and strategy specs
+- A feasibility gate before strategy formalization
+- A validation gate before YAML writing
+- A Redis-ready memory architecture with working traces, episodes, and semantic lessons
+- A compaction layer, the ResearchTrace Compiler, for turning long traces into reusable context
 
 ## What It Is Not
 
 - Not a trading bot or live trading system
 - Not financial advice or a source of trade recommendations
-- Not a full backtesting platform
 - Not a broker or paper-trading integration
-- Not a live data collection system
-- Not a full persistent memory system
-- Not evidence that any proposed strategy works or is profitable
+- Not proof that any strategy works
+- Not a full backtesting platform yet
 
-## Current Milestone
-
-Milestone 1 implements the agentic research layer. The workflow produces experiment plans
-and `BacktestResultStub` objects, but it deliberately does not execute a backtest.
-
-## Quickstart
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-pytest
-qf run "Find robust short-horizon equity strategies based on market underreaction."
-```
-
-The default provider is deterministic and requires no credentials or internet access.
-
-```bash
-qf run "Research objective" --provider mock
-qf run "Research objective" --output research_packet.json
-qf schemas
-qf version
-```
-
-On macOS, if a Python environment reports that it skipped a hidden editable-install
-`.pth` file, clear the inherited filesystem flag with `chflags -R nohidden .venv`.
-
-Optional live-provider stubs read configuration from environment variables documented in
-`.env.example`. Live providers are not required or exercised by tests.
-
-## Architecture Overview
+## Hackathon Architecture Direction
 
 ```text
-objective
-  -> ResearchDirectorAgent
-  -> PriorArtDiscoveryAgent
-  -> MarketMechanismAgent
-  -> HypothesisGenerationAgent
-  -> DataFeasibilityAgent
-  -> StrategyFormalizerAgent
-  -> ResearchCriticAgent
-  -> ExperimentPlannerAgent
-  -> BacktestRunnerStub
-  -> MemoryProposalAgent
-  -> QuantResearchPacket
+research objective
+→ retrieve Tier 3 semantic lessons
+→ research agents
+→ feasibility gate
+→ strategy formalizer
+→ strategy validator
+→ strategy writer
+→ critic
+→ experiment planner
+→ ExperimentRunnerStub(status="not_executed")
+→ ResearchTrace Compiler
+→ MemoryCuratorAgent
+→ Redis Tier 2/Tier 3
+→ workspace artifacts
 ```
 
-- `strategy_research/schemas.py`: structured contracts and validation
-- `strategy_research/agents/`: focused agent steps and traces
-- `strategy_research/tools/`: deterministic catalogs, feasibility, validation, and heuristics
-- `models/`: provider protocol, mock client, and optional live-provider clients
-- `future/`: explicit non-operational interfaces for later milestones
+The demo should emphasize that QuantCode avoids repeating previously critiqued feasibility and
+validation mistakes. Do not call those “backtest failures” until real backtesting exists.
 
-See [architecture](docs/architecture.md), [system design](docs/system_design_diagram.md),
-[agent flow](docs/agent_flow.md), and [future milestones](docs/future_milestones.md) for
-more detail.
+## Workspace Artifacts
 
-## Development
-
-```bash
-pytest
-ruff check .
-mypy quant_forge
+```text
+workspace/
+  strategies/
+    earnings_gap_volume_drift.yaml
+  research_runs/
+    run_001.json
+  memory/
+    context_pack_001.json
+  reports/
+    run_001.md
 ```
 
-The project targets Python 3.11+ and uses moderate mypy strictness. Tests never require
-live APIs, API keys, or network access.
+## Docs
+
+- [Architecture](docs/architecture.md)
+- [Agent flow](docs/agent_flow.md)
+- [System design diagram](docs/system_design_diagram.md)
+- [Future milestones](docs/future_milestones.md)
 
 ## Disclaimer
 
-This project is for research and educational purposes only. It does not provide financial
-advice, trade recommendations, or live execution. Backtests can be misleading and do not
-guarantee future performance.
+This project is for research and educational purposes only. It does not provide financial advice,
+trade recommendations, or live execution. Backtests can be misleading and do not guarantee future
+performance. The current architecture intentionally keeps execution and brokerage out of scope.
+

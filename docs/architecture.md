@@ -3,364 +3,230 @@
 ## Product Identity
 
 **QuantCode** is Claude Code for systematic strategy research: a local agent that reads a quant
-workspace, researches market hypotheses, writes strategy specs, critiques them, stores
-outcome-grounded memory in Redis, and compacts long research traces into reusable context.
+workspace, researches market hypotheses, writes strategy specs, critiques feasibility and leakage,
+stores research memory in Redis, and compacts long traces into reusable context.
 
-```
-CLI-first (quantcode <command>) + local web dashboard for judging / inspection
-```
+The product is **CLI-first**. The local dashboard is a read-only presentation and inspection layer.
 
----
+## Non-Goals
 
-## CLI Commands
+QuantCode is not a trading bot, broker integration, financial advisor, or live execution system.
+The hackathon version does not claim that any strategy works. It produces structured research
+artifacts, validation reports, critiques, and experiment plans. `ExperimentRunnerStub` explicitly
+returns `status="not_executed"`.
+
+## CLI Surface
 
 ```bash
-quantcode init                                    # scaffold workspace directories
-quantcode research "objective"                   # full agent research loop
-quantcode research-url <url>                     # Browserbase hypothesis extraction from URL
-quantcode inspect runs/latest                    # human-readable run summary
-quantcode memory search "momentum failed"        # semantic query against Redis memory
-quantcode compact runs/latest --budget 1000      # run ResearchTrace Compiler
-quantcode backtest strategies/my_strategy.yaml   # stub or lightweight OHLCV backtest
-
-# Milestone 6 — continuous research (planned)
-quantcode sources add <url> --type rss|arxiv|url # register a feed
-quantcode sources list                            # show registered feeds + health
-quantcode watch                                   # poll feeds, ingest, triage
-quantcode review                                  # list pending EvidenceReviews
-quantcode review <id> --accept|--reject|--revise # human verdict
+quantcode init
+quantcode research "Find short-horizon underreaction strategies"
+quantcode demo
+quantcode inspect runs/latest
+quantcode compact runs/latest --budget 1000
+quantcode memory search "earnings proxy weakness"
+quantcode research-url <url>              # optional Browserbase path
 ```
 
----
+Avoid `quantcode backtest` in the main hackathon demo unless a real or toy backtest exists.
 
 ## Workspace Layout
 
-The agent reads from and writes to a local strategy workspace, mirroring how Claude Code
-operates over a local project:
-
-```
+```text
 workspace/
-  strategies/          # generated YAML strategy specs (StrategyWriterAgent output)
-  research_runs/       # run_001.json, run_002.json ... (full QuantResearchPacket)
-  reports/             # run_001.md, run_001_critique.md (human-readable summaries)
-  memory/              # context_pack_001.json (compacted memory blobs, provenance links)
-  # Milestone 6 additions:
-  sources/             # feeds.yaml (registered feeds), seen.jsonl (URL hash ledger)
-  ingest/              # incoming_*.json (raw IngestedDocument + ExtractedAnomaly)
-  review_queue/        # pending_*.md (EvidenceReviews awaiting human verdict)
+  strategies/          # YAML StrategySpec files
+  research_runs/       # full QuantResearchPacket JSON files
+  reports/             # Markdown judge/devpost summaries
+  memory/              # compacted context packs with provenance
 ```
 
----
+`WorkspaceManager` should own all file operations:
 
-## Module Responsibilities
+- `write_strategy_yaml`
+- `write_run_json`
+- `write_markdown_report`
+- `write_context_pack`
+- `read_existing_strategies`
+- `list_workspace`
 
-- `models/` — `LLMClient` protocol, deterministic mock, OpenAI-compatible and Ollama clients,
-  provider router. Default is `MockLLMClient`; no API keys required for development.
-- `strategy_research/schemas.py` — contract layer. Every workflow artifact is a validated Pydantic
-  model with explicit confidence bounds and DSL validation. `extra="forbid"` on all models.
-- `strategy_research/tools/` — deterministic, network-free catalogs and validators. Tools are
-  injected into agents; agents do not import tools directly.
-- `strategy_research/agents/` — small focused transformations. Each run returns an output plus an
-  `AgentTrace`. Agents do not print, persist, or execute trades.
-- `strategy_research/workflow.py` — dependency construction and sequential orchestration.
-- `tools/` — I/O and integration tools available to agents and CLI: `file_reader`, `file_writer`,
-  `command_runner`, `strategy_validator`, `browserbase_fetch`, `lightweight_backtester_or_stub`,
-  `redis_memory`, `arize_tracer`, `sentry_logger`.
-- `dashboard/` — local web dashboard. Reads workspace files and Redis; never writes back.
-- `future/` — intentionally non-operational stubs for capabilities not yet implemented.
+This is central to the “Claude Code for quant research” metaphor.
 
----
+## Core Pipeline
 
-## 8-Agent Pipeline
+```text
+Research objective
+→ retrieve Tier 3 semantic lessons from Redis
+→ ResearchDirectorAgent
+→ PriorArtDiscoveryAgent
+→ MarketMechanismAgent
+→ HypothesisGeneratorAgent
+→ DataFeasibilityAgent
+→ StrategyFormalizerAgent
+→ StrategyValidatorTool
+→ StrategyWriterAgent
+→ ResearchCriticAgent
+→ ExperimentPlannerAgent
+→ ExperimentRunnerStub
+→ raw trace to Redis Tier 1
+→ ResearchTrace Compiler / CompactorAgent
+→ MemoryCuratorAgent
+→ Redis Tier 2 episode + Tier 3 semantic lessons
+→ QuantResearchPacket
+→ workspace/research_runs/run_N.json
+```
 
-Agents run sequentially. Each receives only the outputs of prior agents that it needs.
+`research-url <url>` should route Browserbase output into `PriorArtTheme`, not directly into
+hypotheses. That keeps the schema boundary clean:
 
-| # | Agent | Role | Key tools |
-|---|---|---|---|
-| 1 | `ResearchDirectorAgent` | Converts objective → bounded `ResearchAgenda` | LLM |
-| 2 | `BrowserResearcherAgent` | Fetches URL via Browserbase/Stagehand → extracts anomaly, mechanism, data requirements | `browserbase_fetch` |
-| 3 | `PriorArtDiscoveryAgent` | Offline anomaly catalog search → `list[PriorArtTheme]` | `KnownAnomalyCatalogTool`, `ResearchCorpusSearchStub` |
-| 4 | `HypothesisGeneratorAgent` | Creates falsifiable claims → `list[CandidateHypothesis]` | LLM |
-| 5 | `DataFeasibilityAgent` | Gates by data availability; suggests proxies → `list[DataFeasibilityReport]` | `DataRequirementMapperTool`, `ProxyFeatureSuggesterTool` |
-| 6 | `StrategyWriterAgent` | Formalizes feasible hypotheses → `list[StrategySpec]`; writes YAML files | `DSLValidationTool`, `file_writer` |
-| 7 | `ResearchCriticAgent` | DSL, leakage, complexity, cost critique → `list[StrategyCritique]` | `DSLValidationTool`, `LeakageCheckTool`, `CostRiskHeuristicTool` |
-| 8 | `MemoryCuratorAgent` | Scores candidates, deduplicates, promotes durable lessons → Redis Tier 2/3 | `redis_memory` |
-| 9 | `CompactorAgent` | Runs ResearchTrace Compiler → context pack under token budget | `file_writer`, `redis_memory` |
+```text
+research-url URL
+→ BrowserResearcherAgent
+→ PriorArtTheme / mechanism evidence
+→ normal pipeline
+```
 
-`ExperimentPlannerAgent` and `BacktestRunnerStub` remain as lightweight stubs between
-`StrategyWriterAgent` and `MemoryCuratorAgent`.
+## Feasibility vs Validation
 
-Reused base classes:
-- `BaseAgent` + `AgentTrace` — `strategy_research/agents/base.py`
-- `QuantResearchPacket` — `strategy_research/schemas.py`
+The system has two separate gates.
 
----
+**DataFeasibilityAgent** decides whether a hypothesis has enough data to become a candidate
+strategy:
 
-## Why Research Is Separate From Execution
+- `testable_now`
+- `testable_with_proxy`
+- `requires_new_data_source`
+- `not_testable`
 
-Research agents handle ambiguity: they survey themes, state mechanisms, form falsifiable
-hypotheses, and identify data limitations. A future backtester must handle none of that
-ambiguity — it consumes a validated `StrategySpec` and executes deterministic rules against
-point-in-time data.
+Only `testable_now` and `testable_with_proxy` advance.
 
-Keeping layers separate prevents an agent from inventing unavailable features during execution,
-changing rules after seeing outcomes, or confusing a qualitative research claim with empirical
-evidence.
+**StrategyValidatorTool** decides whether a formalized strategy is safe to write as YAML:
 
----
+- supported features only
+- supported operators only
+- entry rules exist
+- exit rules exist
+- risk rules exist
+- no future-return features
+- no vague natural-language rules
+- no unsupported ranking feature
 
-## 3-Tier Redis Memory
+This separation matters: feasibility is about data availability; validation is about deterministic
+execution readiness.
 
-Memory persists across research runs. The agent retrieves Tier 3 lessons before generating
-new hypotheses, so it does not repeat known failures.
+## Experiment Runner Naming
 
-### Tier 1 — Working Memory (session-scoped)
-
-RedisJSON or Streams. Cleared at the start of each run, or expired by TTL.
+Use `ExperimentRunnerStub`, not `BacktestRunnerStub`, in the hackathon architecture. It should
+return:
 
 ```json
 {
-  "run_id": "run_001",
-  "objective": "...",
-  "agent_messages": [],
-  "hypotheses": [],
-  "strategy_specs": [],
-  "critiques": []
+  "status": "not_executed",
+  "reason": "Backtesting is intentionally stubbed in this hackathon version.",
+  "planned_metrics": ["Sharpe", "max_drawdown", "turnover", "alpha_vs_benchmark"]
 }
 ```
 
-### Tier 2 — Episodic Memory (persisted, vector search)
+This is more honest and avoids implying quantitative evidence that does not exist yet.
 
-One document per completed strategy episode. Searchable by embedding.
+## Redis Memory Design
 
-```json
-{
-  "type": "strategy_episode",
-  "strategy_name": "earnings_gap_volume_drift",
-  "family": "event_driven_momentum",
-  "result": "failed",
-  "failure_modes": ["high_turnover", "proxy_data_weakness"],
-  "lessons": ["Do not use gap proxy without event-date filter."],
-  "embedding_text": "event driven momentum earnings gap volume drift high turnover weak proxy"
-}
+Redis is the primary sponsor-track fit. Use it as the agent memory substrate, not merely a cache.
+
+### Tier 1: Working Trace
+
+Short-lived run/session data. Stores raw agent events, tool calls, intermediate outputs, and trace
+chunks. It should have a TTL.
+
+### Tier 2: Episodic Memory
+
+One record per research run or strategy episode. Stores objective, generated strategies, critiques,
+failed assumptions, and provenance.
+
+### Tier 3: Semantic Lessons
+
+Compact durable lessons. Stores reusable warnings, successful patterns, data constraints, and
+mutation rules. New runs retrieve Tier 3 by default, not full Tier 1 traces.
+
+Suggested keys:
+
+```text
+qc:run:{run_id}:trace
+qc:episode:{run_id}
+qc:lesson:{lesson_id}
+qc:context_pack:{pack_id}
+qc:index:lessons
 ```
 
-### Tier 3 — Semantic Lesson Memory (distilled, retrieved pre-research)
+## Memory and Compaction Order
 
-Durable lessons promoted from Tier 2. Retrieved by semantic search on the next run's objective.
+Raw trace can be written to Tier 1 immediately, but durable memory must be compacted first:
 
-```json
-{
-  "type": "research_lesson",
-  "lesson": "Gap-and-volume strategies are weak proxies for earnings underreaction unless event dates are available.",
-  "applies_to": ["earnings", "event_driven", "underreaction"],
-  "confidence": 0.72,
-  "source_runs": ["run_001", "run_004"]
-}
+```text
+Agent pipeline
+→ raw trace to Redis Tier 1
+→ ResearchTrace Compiler extracts candidate lessons
+→ MemoryCuratorAgent validates and promotes candidates
+→ Redis Tier 2 episode + Tier 3 semantic lessons
+→ workspace/memory/context_pack_N.json
 ```
 
----
+The memory curator should not promote directly from noisy raw traces.
 
-## Token Compaction Algorithm (ResearchTrace Compiler)
+## ResearchTrace Compiler
 
-Converts a full agent trace (~18k tokens) into a context pack (~1k tokens) stored in
-`workspace/memory/` and Redis Tier 1.
+The compaction module should have a named identity because it is a strong demo point.
 
-### Scoring Formula
+Demo metrics:
 
-```
-score =
-  0.25 × relevance_to_current_objective
-+ 0.20 × empirical_value
-+ 0.15 × novelty
-+ 0.15 × failure_severity
-+ 0.10 × recency
-+ 0.10 × reuse_frequency
-+ 0.05 × provenance_quality
+```text
+18,400 tokens → 1,050 tokens
+17.5x compression
+critical lessons retained: 9/10
+duplicate trace events removed: 42
+context pack budget: 1,000 tokens
 ```
 
-### Context Pack Budget (~1,100 tokens)
+Approximate token counts are acceptable for the prototype if clearly labeled as estimates.
 
-| Slot | Tokens | Content |
-|---|---|---|
-| Current objective | 150 | Verbatim research question |
-| Relevant past failures | 250 | Top-scored failure lessons |
-| Successful patterns | 250 | Accepted strategy families |
-| Data constraints | 200 | Known feasibility limits |
-| Critic instructions | 150 | Recurring critique themes |
-| Provenance references | 100 | Run IDs linking to full traces |
+## Dashboard Scope
 
-### Pipeline
+The dashboard is read-only and judge-facing. It should replay the run rather than just showing
+final outputs.
 
-1. Segment trace into typed events: objective, source, hypothesis, data requirement,
-   strategy spec, critique, validation result, backtest result, lesson.
-2. Convert each event to a structured memory candidate.
-3. Score each candidate with the formula above.
-4. Deduplicate semantically similar candidates.
-5. Promote only durable items: failed strategy lessons, useful mutations, data feasibility
-   constraints, recurring risk warnings, strategy-family-specific rules.
-6. Emit context pack under budget; store full trace and pack in Redis with provenance links.
+Minimum panels:
 
-### Compaction Quality Metrics (shown in demo)
+- Agent timeline
+- Strategy YAML viewer
+- Critique view
+- Redis memory explorer
+- Compaction before/after
+- Follow-up run comparison
 
-```
-Original trace:    18,400 tokens
-Compacted pack:     1,050 tokens
-Compression ratio:  17.5×
-Retained:
-  4 strategy lessons
-  2 failed-pattern warnings
-  3 data constraints
-  2 mutation rules
+The follow-up comparison is the proof of learning:
+
+```text
+Run 1: weak proxy or validation issue is critiqued
+Memory: warning is compacted and promoted
+Run 2: warning is retrieved and changes behavior
 ```
 
----
+## Sponsor Strategy
 
-## Local Web Dashboard
+Primary:
 
-Read-only. Reads from `workspace/` files and Redis. Never writes back.
+- **Redis** — memory substrate: traces, episodes, semantic lessons, context packs.
+- **Token Company** — ResearchTrace Compiler with compression metrics.
+- **Anthropic** — “Claude Code for quant research” product framing and workspace-first agent loop.
 
-| Page | Content |
-|---|---|
-| Run timeline | Agent steps, token usage, durations per run |
-| Strategy graph | Hypothesis → feasibility → spec → critique flow |
-| Memory explorer | Tier 2/3 entries, retrieval history, provenance links |
-| Compaction view | Before/after token diff, retained lessons |
-| Critique view | Accept/revise/reject verdicts, leakage and cost flags |
+Secondary:
 
----
+- **Browserbase** — `research-url <url>` extracts prior-art themes from pages.
+- **Arize/Sentry** — observability and reliability if quick to add.
 
-## Sponsor-Track Integration Map
+Cut:
 
-| Track | Integration | Explicit non-scope |
-|---|---|---|
-| **Redis** | 3-tier memory; vector search on Tier 2/3; working-memory TTL | No real-time pub/sub |
-| **Token Company** | ResearchTrace Compiler with measurable compression ratio and quality metrics | No external token-counting API required |
-| **Anthropic** | Claude Agent SDK drives the entire agent loop; workspace file I/O mimics Claude Code | No Claude Code CLI dependency |
-| **Browserbase** | `quantcode research-url <url>` uses Stagehand for hypothesis extraction from one URL | No general scraping pipeline |
-| **Arize** | Span per agent step: prompt size, tool call, memory retrieval, compaction result, critic verdict | No A/B evaluation runs |
-| **Sentry** | Error capture on failed tool calls, schema validation errors, Redis unavailable, Browserbase failures | No performance monitoring |
-| **UI/UX** | Local web dashboard for run / memory / compaction / critique inspection | No auth, no deployment |
-| **Deepgram** | Optional voice command → TTS summary ("avoid the mistake from the last run") | Only if time permits; must feel essential |
+- broker/paper trading
+- real market data ingestion
+- full backtester
+- complex frontend
+- unrelated sponsor integrations
 
----
-
-## Continuous Research (Milestone 6)
-
-The existing pipeline is **objective-pulled** — the user names an objective and the
-9-agent loop runs once. Milestone 6 adds an **evidence-pushed** mode: registered feeds
-tick, new documents are triaged against existing strategies, and only relevant ones
-surface for human review. The 9-agent pipeline is unchanged; the watcher loop wraps it.
-
-### Watcher Pipeline
-
-Three agents, run sequentially per ingested document:
-
-| # | Agent | Role | Key tools |
-|---|---|---|---|
-| W1 | `SourceWatcherAgent` | Poll feeds, dedupe by content hash → `list[IngestedDocument]` (URL-only shells) | `FeedRegistry`, `SeenLedger`, `RSSFetcher` / `ArxivFetcher` |
-| W2 | `BrowserResearcherAgent.run_document` | Hydrate the document via Browserbase → `ExtractedAnomaly` with `source_doc_id` provenance | `browserbase_fetch` |
-| W3 | `EvidenceTriageAgent` | Score anomaly against active `StrategySpec`s and Tier 3 lessons → `list[EvidenceReview]` | `StrategyRegistry`, `redis_memory`, embedding fn |
-
-`workflow.run_watcher_tick()` orchestrates W1 → W2 → W3 and handles persistence. The
-on-demand `quantcode research-url` entry point continues to use
-`BrowserResearcherAgent.run_url` and feeds the existing 9-agent loop unchanged.
-
-### Two-Stage Triage
-
-To prevent every ingested doc from fanning out to N strategies × one LLM call:
-
-```
-Stage 1 (free per doc — vector similarity, no LLM)
-  embed(anomaly.mechanism_summary + anomaly.anomaly_name)
-  for each active strategy:
-      sim = cosine(strategy.embedding, anomaly_embedding)
-      keep if sim >= annotate_threshold
-  → candidates (capped at top-K, default 5)
-
-Stage 2 (one LLM call per surviving candidate)
-  retrieve top-3 Tier 3 lessons by (strategy.family + anomaly.mechanism)
-  LLM(strategy_spec, anomaly, lessons) → EvidenceReview
-```
-
-Strategy embeddings are computed eagerly by `StrategyWriterAgent` on emit (avoids a
-cold-cache stall in the watcher loop).
-
-### Grounding Guards
-
-LLM-generated `EvidenceReview`s pass through a deterministic validator before the
-agent returns. Each guard strips ungrounded fields; if the strip would invalidate the
-verdict, the action is downgraded.
-
-| Guard | Rule |
-|---|---|
-| Verbatim conflict | `ConflictSignal.source_quote` must be a substring of `anomaly.cited_evidence`; ungrounded conflicts are dropped |
-| Verbatim overlap | `MechanismOverlap.strategy_evidence` and `anomaly_evidence` must be substrings of the spec and anomaly respectively |
-| Source-quality ceiling | Action capped by `SourceQuality`: `social_post`/`blog_or_forum` → max `ANNOTATE`; `unknown` → max `IGNORE` without strong support |
-| Revise requires reason | `REVISE` requires either a grounded conflict or an "opposite" mechanism overlap; otherwise downgraded to `ANNOTATE` |
-
-`SourceQuality` is classified deterministically by domain rules (arxiv → `preprint`,
-known journals → `peer_reviewed`, etc.) — not by the LLM, which has incentive to upgrade.
-
-### New Schemas
-
-```python
-SourceFeed          # feed_id, type, url, poll_interval, last_polled_at, enabled
-IngestedDocument    # doc_id (content_hash[:12]), source_feed_id, url, title, body, fetched_at
-ExtractedAnomaly    # source_url, source_doc_id, anomaly_name, mechanism_summary,
-                    # asset_classes, data_requirements, cited_evidence, extraction_confidence
-EvidenceReview      # review_id, evidence_doc_id, source_quality, strategy_name,
-                    # relevance_score, mechanism_overlap, conflict_signals,
-                    # suggested_action, rationale, tier3_lesson_refs
-MechanismOverlap    # mechanism_name, direction (same|opposite|orthogonal),
-                    # strategy_evidence, anomaly_evidence  (both verbatim)
-ConflictSignal      # claim, source_quote (verbatim), affects_rule, severity
-SourceQuality       # peer_reviewed | preprint | reputable_news | blog_or_forum
-                    # | social_post | unknown
-TriageAction        # ignore | annotate | revise
-```
-
-### Sponsor-Track Reuse
-
-| Track | Continuous-research usage |
-|---|---|
-| Redis | Tier 2 gains `evidence_event` doc type linking docs ↔ strategies; Tier 3 lessons can be promoted from external-evidence convergence, not just internal run failures |
-| Browserbase | Same `browserbase_fetch` tool, second entry point on `BrowserResearcherAgent` |
-| Arize | New span types: feed poll, triage stage 1 (vector), triage stage 2 (LLM), guard rewrites |
-| Sentry | Errors on feed fetch failure, embedding service unavailable, guard rejections above threshold |
-
----
-
-## Stubs and Explicit Non-Scope
-
-| Capability | Status | Rationale |
-|---|---|---|
-| Real broker integration | `BrokerAdapterStub` — labelled "planned" | Distraction from research demo; legally awkward |
-| Live market data | Protocol stubs only | Full data pipeline is a separate milestone |
-| Full production backtester | `BacktestRunnerStub` (status=`not_executed`) or lightweight OHLCV | Research loop is the differentiator |
-| Authentication / payments | None | Out of scope for hackathon |
-| Desktop packaging | None | CLI + browser is sufficient |
-
-`BacktestRunnerStub` always returns `status="not_executed"`. `MemoryStoreStub` in `future/memory.py`
-is superseded by the real `redis_memory` tool. `BrokerAdapterStub` raises `NotImplementedError`.
-Data provider protocols do not fetch live data.
-
----
-
-## Acceptance Criteria
-
-```bash
-quantcode research "Find short-horizon equity strategies based on market underreaction."
-# → generates strategy YAML in workspace/strategies/
-# → writes run JSON to workspace/research_runs/
-# → writes markdown report to workspace/reports/
-
-quantcode compact runs/latest --budget 1000
-# → prints compression ratio and retained-lesson count
-# → writes context pack to workspace/memory/
-
-quantcode research "Find another earnings drift strategy."
-# → agent retrieves Tier 3 lesson:
-#    "Prior gap-volume proxy failed without event dates."
-# → generates strategy with event-date requirement or explicit proxy warning
-```

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from quant_forge.models.mock import MockLLMClient
-from quant_forge.strategy_research.agents import (
+from quant_code.models.mock import MockLLMClient
+from quant_code.strategy_research.agents import (
     DataFeasibilityAgent,
     ExperimentPlannerAgent,
     HypothesisGenerationAgent,
@@ -12,7 +12,7 @@ from quant_forge.strategy_research.agents import (
     ResearchDirectorAgent,
     StrategyFormalizerAgent,
 )
-from quant_forge.strategy_research.schemas import (
+from quant_code.strategy_research.schemas import (
     DataFeasibilityVerdict,
     QuantResearchPacket,
     QuantResearchRequest,

@@ -3,13 +3,13 @@ requires = ["flit_core>=3.11,<5"]
 build-backend = "flit_core.buildapi"
 
 [project]
-name = "quant-forge"
+name = "quant-code"
 version = "0.1.0"
 description = "A deterministic prototype of an agentic quant research layer"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
-authors = [{ name = "Quant Forge contributors" }]
+authors = [{ name = "QuantCode contributors" }]
 dependencies = [
   "pydantic>=2.7,<3",
   "python-dotenv>=1.0,<2",
@@ -25,10 +25,10 @@ dev = [
 ]
 
 [project.scripts]
-qf = "quant_forge.cli:app"
+qf = "quant_code.cli:app"
 
 [tool.flit.module]
-name = "quant_forge"
+name = "quant_code"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
