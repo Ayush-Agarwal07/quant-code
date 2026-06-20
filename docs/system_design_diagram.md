@@ -76,6 +76,41 @@ flowchart TD
 
 ---
 
+## Watcher Flow (Milestone 6)
+
+Evidence-pushed mode. Runs parallel to the objective-pulled `quantcode research` flow.
+The 9-agent pipeline above is unchanged; the watcher wraps it.
+
+```mermaid
+flowchart TD
+    CRON["quantcode watch\nor cron tick"] --> SW["SourceWatcherAgent\npoll feeds.yaml"]
+    SW --> SL["seen.jsonl\ndedup ledger"]
+    SL --> ID["IngestedDocument\nURL shells (no body)"]
+    ID --> BR["BrowserResearcherAgent.run_document\nBrowserbase hydrate"]
+    BR --> EA["ExtractedAnomaly\n+ source_doc_id"]
+
+    EA --> S1["Triage Stage 1\nvector sim vs strategy embeddings\n(no LLM)"]
+    S1 -->|sim below floor| IGN["IGNORE\nlog ingest-but-discarded"]
+    S1 -->|top-K candidates| S2["Triage Stage 2\nLLM call per candidate\n+ Tier 3 lessons"]
+    S2 --> EV["EvidenceReview\n(ungrounded)"]
+    EV --> VG["Grounding validator\nverbatim-quote guards\nsource-quality ceiling\nrevise-needs-reason"]
+    VG --> ER["EvidenceReview\n(validated)"]
+
+    ER --> RQ["workspace/review_queue/\npending_*.md"]
+    RQ --> DASH["Dashboard\nReview page"]
+    DASH --> HV{"Human verdict"}
+    HV -->|accept| MC["MemoryCuratorAgent\nrecord lesson"]
+    HV -->|revise| SW2["StrategyWriterAgent\nrespec (v1: manual trigger)"]
+    HV -->|reject| DROP["drop\nlog rationale"]
+
+    style S1 fill:#e7f0ff,stroke:#2455a6,stroke-width:2px
+    style VG fill:#fff4cc,stroke:#946200,stroke-width:2px
+    style RQ fill:#e8ffe8,stroke:#247a24,stroke-width:2px
+    style IGN fill:#f1f1f1,stroke:#666666,stroke-width:1px
+```
+
+---
+
 ## Integrations
 
 ```mermaid

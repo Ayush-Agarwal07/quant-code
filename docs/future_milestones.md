@@ -69,3 +69,41 @@ backtesting are mature. No broker behavior is implemented before Milestone 3 is 
 
 `BrokerAdapterStub` raises `NotImplementedError` and remains labelled "planned" until this
 milestone begins.
+
+---
+
+## Milestone 6 — Continuous Research / Evidence-Pushed Watcher (planned)
+
+Shift the agent from purely objective-pulled (`quantcode research "..."`) to also
+evidence-pushed: registered feeds tick → new doc → triage against existing strategies →
+either ignored, annotated, or queued for human-reviewed revision. The existing 9-agent
+pipeline stays unchanged; the watcher loop wraps it.
+
+**Build:**
+- `SourceWatcherAgent` — polls registered RSS/arxiv/URL feeds, dedupes by content hash,
+  emits `IngestedDocument` shells (no body) for the browser agent to hydrate
+- `EvidenceTriageAgent` — two-stage gate. Stage 1: cheap vector similarity between the
+  new anomaly and active strategy embeddings. Stage 2: LLM call on surviving candidates
+  to produce a grounded `EvidenceReview` per affected strategy
+- `BrowserResearcherAgent` extension — second entry point `run_document(IngestedDocument)`
+  in addition to `run_url(str)`; emits `ExtractedAnomaly` with `source_doc_id` for
+  provenance through the watcher pipeline
+- `StrategyReviserAgent` (deferred, v2 of this milestone) — diff-proposer for `revise`
+  verdicts; v1 of the milestone annotates only, human pulls the trigger
+- New schemas: `SourceFeed`, `IngestedDocument`, `ExtractedAnomaly`, `EvidenceReview`,
+  `MechanismOverlap`, `ConflictSignal`, `SourceQuality`, `TriageAction`
+- New workspace dirs: `sources/` (feeds.yaml, seen.jsonl), `ingest/` (raw and extracted
+  docs), `review_queue/` (pending EvidenceReviews)
+- New CLI commands: `quantcode sources add|list`, `quantcode watch`, `quantcode review`
+- Dashboard additions: Review queue page (pending evidence by relevance, one-click
+  accept/reject/revise), Sources page (per-feed ingestion rate and signal/noise ratio)
+
+**Why now (sequencing):** depends on Milestone 2 (Browserbase + Redis Tier 2/3) and
+benefits from Milestone 3 (real backtest results sharpen the triage's view of which
+strategies are worth defending).
+
+**Non-scope:**
+- Auto-revision of strategy specs without human approval (annotate-only in v1)
+- Webhook-driven ingest (polling only)
+- Cross-strategy ensemble reasoning ("this paper invalidates the whole family")
+- Source discovery — feeds are user-registered, not auto-found

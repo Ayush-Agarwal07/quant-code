@@ -22,6 +22,13 @@ quantcode inspect runs/latest                    # human-readable run summary
 quantcode memory search "momentum failed"        # semantic query against Redis memory
 quantcode compact runs/latest --budget 1000      # run ResearchTrace Compiler
 quantcode backtest strategies/my_strategy.yaml   # stub or lightweight OHLCV backtest
+
+# Milestone 6 — continuous research (planned)
+quantcode sources add <url> --type rss|arxiv|url # register a feed
+quantcode sources list                            # show registered feeds + health
+quantcode watch                                   # poll feeds, ingest, triage
+quantcode review                                  # list pending EvidenceReviews
+quantcode review <id> --accept|--reject|--revise # human verdict
 ```
 
 ---
@@ -37,6 +44,10 @@ workspace/
   research_runs/       # run_001.json, run_002.json ... (full QuantResearchPacket)
   reports/             # run_001.md, run_001_critique.md (human-readable summaries)
   memory/              # context_pack_001.json (compacted memory blobs, provenance links)
+  # Milestone 6 additions:
+  sources/             # feeds.yaml (registered feeds), seen.jsonl (URL hash ledger)
+  ingest/              # incoming_*.json (raw IngestedDocument + ExtractedAnomaly)
+  review_queue/        # pending_*.md (EvidenceReviews awaiting human verdict)
 ```
 
 ---
@@ -231,6 +242,92 @@ Read-only. Reads from `workspace/` files and Redis. Never writes back.
 | **Sentry** | Error capture on failed tool calls, schema validation errors, Redis unavailable, Browserbase failures | No performance monitoring |
 | **UI/UX** | Local web dashboard for run / memory / compaction / critique inspection | No auth, no deployment |
 | **Deepgram** | Optional voice command → TTS summary ("avoid the mistake from the last run") | Only if time permits; must feel essential |
+
+---
+
+## Continuous Research (Milestone 6)
+
+The existing pipeline is **objective-pulled** — the user names an objective and the
+9-agent loop runs once. Milestone 6 adds an **evidence-pushed** mode: registered feeds
+tick, new documents are triaged against existing strategies, and only relevant ones
+surface for human review. The 9-agent pipeline is unchanged; the watcher loop wraps it.
+
+### Watcher Pipeline
+
+Three agents, run sequentially per ingested document:
+
+| # | Agent | Role | Key tools |
+|---|---|---|---|
+| W1 | `SourceWatcherAgent` | Poll feeds, dedupe by content hash → `list[IngestedDocument]` (URL-only shells) | `FeedRegistry`, `SeenLedger`, `RSSFetcher` / `ArxivFetcher` |
+| W2 | `BrowserResearcherAgent.run_document` | Hydrate the document via Browserbase → `ExtractedAnomaly` with `source_doc_id` provenance | `browserbase_fetch` |
+| W3 | `EvidenceTriageAgent` | Score anomaly against active `StrategySpec`s and Tier 3 lessons → `list[EvidenceReview]` | `StrategyRegistry`, `redis_memory`, embedding fn |
+
+`workflow.run_watcher_tick()` orchestrates W1 → W2 → W3 and handles persistence. The
+on-demand `quantcode research-url` entry point continues to use
+`BrowserResearcherAgent.run_url` and feeds the existing 9-agent loop unchanged.
+
+### Two-Stage Triage
+
+To prevent every ingested doc from fanning out to N strategies × one LLM call:
+
+```
+Stage 1 (free per doc — vector similarity, no LLM)
+  embed(anomaly.mechanism_summary + anomaly.anomaly_name)
+  for each active strategy:
+      sim = cosine(strategy.embedding, anomaly_embedding)
+      keep if sim >= annotate_threshold
+  → candidates (capped at top-K, default 5)
+
+Stage 2 (one LLM call per surviving candidate)
+  retrieve top-3 Tier 3 lessons by (strategy.family + anomaly.mechanism)
+  LLM(strategy_spec, anomaly, lessons) → EvidenceReview
+```
+
+Strategy embeddings are computed eagerly by `StrategyWriterAgent` on emit (avoids a
+cold-cache stall in the watcher loop).
+
+### Grounding Guards
+
+LLM-generated `EvidenceReview`s pass through a deterministic validator before the
+agent returns. Each guard strips ungrounded fields; if the strip would invalidate the
+verdict, the action is downgraded.
+
+| Guard | Rule |
+|---|---|
+| Verbatim conflict | `ConflictSignal.source_quote` must be a substring of `anomaly.cited_evidence`; ungrounded conflicts are dropped |
+| Verbatim overlap | `MechanismOverlap.strategy_evidence` and `anomaly_evidence` must be substrings of the spec and anomaly respectively |
+| Source-quality ceiling | Action capped by `SourceQuality`: `social_post`/`blog_or_forum` → max `ANNOTATE`; `unknown` → max `IGNORE` without strong support |
+| Revise requires reason | `REVISE` requires either a grounded conflict or an "opposite" mechanism overlap; otherwise downgraded to `ANNOTATE` |
+
+`SourceQuality` is classified deterministically by domain rules (arxiv → `preprint`,
+known journals → `peer_reviewed`, etc.) — not by the LLM, which has incentive to upgrade.
+
+### New Schemas
+
+```python
+SourceFeed          # feed_id, type, url, poll_interval, last_polled_at, enabled
+IngestedDocument    # doc_id (content_hash[:12]), source_feed_id, url, title, body, fetched_at
+ExtractedAnomaly    # source_url, source_doc_id, anomaly_name, mechanism_summary,
+                    # asset_classes, data_requirements, cited_evidence, extraction_confidence
+EvidenceReview      # review_id, evidence_doc_id, source_quality, strategy_name,
+                    # relevance_score, mechanism_overlap, conflict_signals,
+                    # suggested_action, rationale, tier3_lesson_refs
+MechanismOverlap    # mechanism_name, direction (same|opposite|orthogonal),
+                    # strategy_evidence, anomaly_evidence  (both verbatim)
+ConflictSignal      # claim, source_quote (verbatim), affects_rule, severity
+SourceQuality       # peer_reviewed | preprint | reputable_news | blog_or_forum
+                    # | social_post | unknown
+TriageAction        # ignore | annotate | revise
+```
+
+### Sponsor-Track Reuse
+
+| Track | Continuous-research usage |
+|---|---|
+| Redis | Tier 2 gains `evidence_event` doc type linking docs ↔ strategies; Tier 3 lessons can be promoted from external-evidence convergence, not just internal run failures |
+| Browserbase | Same `browserbase_fetch` tool, second entry point on `BrowserResearcherAgent` |
+| Arize | New span types: feed poll, triage stage 1 (vector), triage stage 2 (LLM), guard rewrites |
+| Sentry | Errors on feed fetch failure, embedding service unavailable, guard rejections above threshold |
 
 ---
 
