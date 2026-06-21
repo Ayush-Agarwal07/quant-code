@@ -13,7 +13,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from quantcode.compaction import ResearchTraceCompiler
-from quantcode.dashboard.backtest import BacktestResult
+from quantcode.dashboard.backtest import BacktestResult, build_paper_plan
 from quantcode.memory import Memory
 from quantcode.pipeline import run_from_url, run_research
 from quantcode.schemas import Lesson, QuantResearchPacket, StrategySpec
@@ -260,6 +260,13 @@ def _print_lessons(lessons: list[Lesson]) -> None:
     console.print(table)
 
 
+def _maybe_promote_backtest_lessons(mem: Memory, lessons: list[Lesson]) -> None:
+    if not typer.confirm("promote these backtest lessons to Tier 3?", default=False):
+        return
+    promoted = mem.curator.promote(lessons, approved=True)["promoted"]
+    console.print(f"[green]promoted {len(promoted)} lesson(s).[/green]")
+
+
 def _mutate_spec(spec: StrategySpec, wm: WorkspaceManager) -> StrategySpec:
     current_hold = spec.risk_rules.max_holding_days or 0
     hold_raw = typer.prompt(
@@ -283,34 +290,146 @@ def _mutate_spec(spec: StrategySpec, wm: WorkspaceManager) -> StrategySpec:
     return updated
 
 
-def _learn_from_check(packet: QuantResearchPacket, spec: StrategySpec, papers: int, news: int) -> None:
+def _run_backtest_review(
+    packet: QuantResearchPacket,
+    spec: StrategySpec,
+    papers: int,
+    news: int,
+    round_no: int,
+) -> list[Lesson]:
     from quantcode.dashboard.backtest import run_backtest
 
+    result = run_backtest(spec)
+    _print_check(packet, spec, papers=papers, news=news, result=result)
+    console.print(_ascii_curve(result))
+    lessons = _backtest_lessons(packet, spec, result, round_no)
+    _print_lessons(lessons)
+    return lessons
+
+
+def _learn_from_check(packet: QuantResearchPacket, spec: StrategySpec, papers: int, news: int) -> None:
     wm = WorkspaceManager()
     mem = Memory.connect()
-    round_no = 1
     current = spec
-    while True:
-        result = run_backtest(current)
-        _print_check(packet, current, papers=papers, news=news, result=result)
-        console.print(_ascii_curve(result))
-        lessons = _backtest_lessons(packet, current, result, round_no)
-        _print_lessons(lessons)
-        action = typer.prompt(
-            "next action [stop|iterate|adjust]",
-            default="stop",
-        ).strip().lower()
-        if action == "stop":
-            promote = typer.confirm("promote these backtest lessons to Tier 3?", default=False)
-            if promote:
-                promoted = mem.curator.promote(lessons, approved=True)["promoted"]
-                console.print(f"[green]promoted {len(promoted)} lesson(s).[/green]")
-            return
-        if action == "adjust":
-            current = _mutate_spec(current, wm)
-        round_no += 1
-        if not typer.confirm("run another backtest round?", default=False):
-            return
+    lessons = _run_backtest_review(packet, current, papers, news, round_no=1)
+    action = typer.prompt(
+        "next action [stop|iterate|adjust]",
+        default="stop",
+    ).strip().lower()
+    if action == "stop":
+        _maybe_promote_backtest_lessons(mem, lessons)
+        return
+    if not typer.confirm("approve one more backtest round?", default=False):
+        _maybe_promote_backtest_lessons(mem, lessons)
+        return
+    if action == "adjust":
+        current = _mutate_spec(current, wm)
+    lessons = _run_backtest_review(packet, current, papers, news, round_no=2)
+    _maybe_promote_backtest_lessons(mem, lessons)
+
+
+def _iterate_strategy(
+    packet: QuantResearchPacket,
+    spec: StrategySpec,
+    papers: int,
+    news: int,
+    *,
+    adjust_first: bool,
+) -> None:
+    if not typer.confirm("approve this backtest iteration?", default=False):
+        raise typer.Exit(0)
+    wm = WorkspaceManager()
+    current = _mutate_spec(spec, wm) if adjust_first else spec
+    lessons = _run_backtest_review(packet, current, papers, news, round_no=2)
+    _maybe_promote_backtest_lessons(Memory.connect(), lessons)
+
+
+def _run_paper_live(
+    packet: QuantResearchPacket,
+    spec: StrategySpec,
+    *,
+    starting_cash: float,
+    reset: bool,
+) -> None:
+    wm = WorkspaceManager()
+    plan = build_paper_plan(spec)
+    if not plan.picks:
+        console.print("[yellow]No live paper picks produced for this strategy.[/yellow]")
+        raise typer.Exit(1)
+
+    state = None if reset else wm.read_paper_state(spec.strategy_name)
+    cash = float(state["cash"]) if state else starting_cash
+    positions = {k: float(v) for k, v in (state["positions"] if state else {}).items()}
+    prices = {pick.ticker: pick.price for pick in plan.picks}
+    equity = cash + sum(shares * prices.get(tk, 0.0) for tk, shares in positions.items())
+    if equity <= 0:
+        equity = starting_cash
+
+    targets = {pick.ticker: round(equity * pick.weight / pick.price, 4) for pick in plan.picks if pick.price > 0}
+    orders: list[tuple[str, str, float, float, float]] = []
+    for tk in sorted(set(positions) | set(targets)):
+        current = positions.get(tk, 0.0)
+        target = targets.get(tk, 0.0)
+        delta = round(target - current, 4)
+        if abs(delta) < 1e-6:
+            continue
+        action = "BUY" if delta > 0 else "SELL"
+        orders.append((action, tk, abs(delta), prices.get(tk, 0.0), round(delta * prices.get(tk, 0.0), 2)))
+
+    new_positions = {tk: shares for tk, shares in targets.items() if shares > 0}
+    invested = sum(new_positions[tk] * prices[tk] for tk in new_positions)
+    new_cash = round(equity - invested, 2)
+    history = list(state.get("history", []))[-19:] if state else []
+    history.append({"as_of": plan.as_of, "equity": round(equity, 2)})
+    path = wm.write_paper_state(
+        spec.strategy_name,
+        {
+            "run_id": packet.run_id,
+            "strategy_name": spec.strategy_name,
+            "as_of": plan.as_of,
+            "cash": new_cash,
+            "equity": round(equity, 2),
+            "source": plan.source,
+            "signal": plan.signal,
+            "positions": new_positions,
+            "history": history,
+        },
+    )
+
+    summary = Table(title=f"Paper portfolio — {spec.strategy_name}")
+    summary.add_column("field")
+    summary.add_column("value")
+    summary.add_row("run", packet.run_id)
+    summary.add_row("as of", plan.as_of or "—")
+    summary.add_row("source", plan.source if plan.executed else "simulated fallback")
+    summary.add_row("signal", plan.signal)
+    summary.add_row("equity", f"${equity:,.2f}")
+    summary.add_row("cash", f"${new_cash:,.2f}")
+    console.print(summary)
+    console.print(f"[dim]{plan.note}[/dim]")
+
+    picks = Table(title="Target holdings")
+    picks.add_column("ticker")
+    picks.add_column("price")
+    picks.add_column("signal")
+    picks.add_column("weight")
+    for pick in plan.picks:
+        picks.add_row(pick.ticker, f"${pick.price:.2f}", f"{pick.signal_value:.4f}", f"{pick.weight:.0%}")
+    console.print(picks)
+
+    order_table = Table(title="Paper orders")
+    order_table.add_column("side")
+    order_table.add_column("ticker")
+    order_table.add_column("shares")
+    order_table.add_column("price")
+    order_table.add_column("notional")
+    if orders:
+        for side, tk, shares, price, notional in orders:
+            order_table.add_row(side, tk, f"{shares:.4f}", f"${price:.2f}", f"${abs(notional):,.2f}")
+    else:
+        order_table.add_row("HOLD", "—", "0", "—", "$0.00")
+    console.print(order_table)
+    console.print(f"[dim]paper state: {path}[/dim]")
 
 
 @app.command()
@@ -425,6 +544,40 @@ def check(
             _learn_from_check(packet, spec, papers=papers, news=news)
         else:
             _print_check(packet, spec, papers=papers, news=news)
+
+
+@app.command()
+def iterate(
+    target: str = typer.Argument("runs/latest", help="Run id, runs/latest, or latest."),
+    strategy_name: str = typer.Option(..., "--strategy", "-s", help="Strategy to re-test."),
+    papers: int = typer.Option(3, help="Number of arXiv papers to fetch."),
+    news: int = typer.Option(4, help="Number of Google News items to fetch."),
+    adjust_first: bool = typer.Option(False, help="Edit basic parameters before re-testing."),
+) -> None:
+    """Run one explicit human-approved backtest iteration for a strategy."""
+    packet = _load_packet(target)
+    spec = _select_specs(packet, strategy_name)[0]
+    _iterate_strategy(packet, spec, papers=papers, news=news, adjust_first=adjust_first)
+
+
+@app.command()
+def live(
+    target: str = typer.Argument("runs/latest", help="Run id, runs/latest, or latest."),
+    paper: bool = typer.Option(False, "--paper", help="Paper-trading only."),
+    strategy_name: str | None = typer.Option(None, "--strategy", "-s", help="Paper-trade one strategy."),
+    starting_cash: float = typer.Option(100000.0, help="Starting paper cash for a new book."),
+    reset: bool = typer.Option(False, help="Reset the saved paper portfolio for this strategy."),
+) -> None:
+    """Paper-trade the latest target portfolio from keyless EOD data."""
+    if not paper:
+        console.print("[yellow]Only `quantcode live --paper` is supported.[/yellow]")
+        raise typer.Exit(1)
+    packet = _load_packet(target)
+    specs = _select_specs(packet, strategy_name)
+    if not specs:
+        console.print("[yellow]No strategy specs available to paper-trade.[/yellow]")
+        raise typer.Exit(1)
+    _run_paper_live(packet, specs[0], starting_cash=starting_cash, reset=reset)
 
 
 @app.command()

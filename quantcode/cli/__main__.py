@@ -35,7 +35,17 @@ learn = runner.invoke(app, ["check", "runs/latest", "--learn"], input="stop\nn\n
 assert learn.exit_code == 0, learn.output
 assert "Backtest-derived lessons" in learn.output, learn.output
 
+iterate = runner.invoke(
+    app,
+    ["iterate", "runs/latest", "--strategy", "short_horizon_momentum"],
+    input="y\nn\n",
+)
+assert iterate.exit_code == 0, iterate.output
+
+live = runner.invoke(app, ["live", "--paper", "--strategy", "short_horizon_momentum"])
+assert live.exit_code == 0 and "Paper orders" in live.output, live.output
+
 url = runner.invoke(app, ["research-url", "https://example.com"])
 assert url.exit_code == 0 and "HITL-gated" in url.output, url.output
 
-print("cli OK — demo/inspect/compact/check-learn/memory-search/research-url all wired (offline)")
+print("cli OK — demo/inspect/compact/check-learn/iterate/live/memory-search/research-url all wired (offline)")
