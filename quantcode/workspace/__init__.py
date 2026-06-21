@@ -10,9 +10,9 @@ refuse-then-version (auto `_vN` on collision) — a *true* overwrite requires ex
 
 from __future__ import annotations
 
+import json
 import os
 import re
-import json
 from pathlib import Path
 
 import yaml

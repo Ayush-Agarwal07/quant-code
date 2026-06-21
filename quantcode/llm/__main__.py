@@ -12,7 +12,6 @@ from quantcode.llm import get_client
 from quantcode.llm.base import LLMError
 from quantcode.schemas import PriorArtTheme
 
-
 SMOKE_PROMPT = (
     "Return exactly one schema-valid PriorArtTheme for a quant research system. "
     "Use conservative, well-known prior art. Do not invent citations or URLs."

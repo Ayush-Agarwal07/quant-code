@@ -1424,8 +1424,10 @@ function PnlChart({
               ? String((payload[0] as { payload?: { label?: string } }).payload?.label ?? "")
               : ""
           }
-          formatter={(v: number | string) =>
-            isPct
+          formatter={(v) =>
+            v == null
+              ? ""
+              : isPct
               ? `${Number(v).toFixed(compact ? 1 : 2)}%`
               : `$${Number(v).toFixed(compact ? 1 : 2)}`
           }

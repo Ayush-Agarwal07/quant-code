@@ -1,5 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
 import type {
   ContextPack,
@@ -15,7 +16,9 @@ import type {
   StrategySpec,
 } from "@/types";
 
-const WORKSPACE_ROOT = path.resolve(process.cwd(), "..", "workspace");
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(HERE, "../../../../");
+const WORKSPACE_ROOT = path.join(REPO_ROOT, "workspace");
 const RUNS_DIR = path.join(WORKSPACE_ROOT, "research_runs");
 const MEMORY_DIR = path.join(WORKSPACE_ROOT, "memory");
 const STRATEGIES_DIR = path.join(WORKSPACE_ROOT, "strategies");
@@ -135,7 +138,7 @@ function artifactPathFor(packet: QuantResearchPacket, strategyName: string): str
     (item) => item.artifact_type === "strategy_yaml" && item.description === strategyName
   );
   if (!artifact) return null;
-  return path.isAbsolute(artifact.path) ? artifact.path : path.resolve(process.cwd(), "..", artifact.path);
+  return path.isAbsolute(artifact.path) ? artifact.path : path.resolve(REPO_ROOT, artifact.path);
 }
 
 export async function listRunIds(): Promise<string[]> {

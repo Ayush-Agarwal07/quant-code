@@ -228,7 +228,7 @@ function CompactionDetail({ pack }: { pack: ContextPack }) {
                   position="top"
                   fill="hsl(0 0% 85%)"
                   fontSize={11}
-                  formatter={(v: number) => formatInt(v)}
+                  formatter={(v) => formatInt(typeof v === 'number' ? v : Number(String(v)))}
                 />
               </Bar>
             </BarChart>
