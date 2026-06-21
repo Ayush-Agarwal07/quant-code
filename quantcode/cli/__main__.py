@@ -9,6 +9,7 @@ import tempfile
 _TMP = tempfile.mkdtemp()
 os.environ["QC_WORKSPACE"] = _TMP  # set BEFORE config is imported
 os.environ.setdefault("QC_MEMORY_BACKEND", "memory")
+os.environ["QC_LLM_PROVIDER"] = "mock"
 
 from typer.testing import CliRunner  # noqa: E402
 
@@ -30,7 +31,11 @@ assert compact.exit_code == 0, compact.output
 search = runner.invoke(app, ["memory", "search", "underreaction"])
 assert search.exit_code == 0, search.output
 
+learn = runner.invoke(app, ["check", "runs/latest", "--learn"], input="stop\nn\n")
+assert learn.exit_code == 0, learn.output
+assert "Backtest-derived lessons" in learn.output, learn.output
+
 url = runner.invoke(app, ["research-url", "https://example.com"])
 assert url.exit_code == 0 and "HITL-gated" in url.output, url.output
 
-print("cli OK — demo/inspect/compact/memory-search/research-url all wired (offline)")
+print("cli OK — demo/inspect/compact/check-learn/memory-search/research-url all wired (offline)")

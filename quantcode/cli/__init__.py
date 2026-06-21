@@ -3,6 +3,7 @@ render with rich. NO business logic here (it belongs in pipeline/)."""
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
@@ -12,9 +13,10 @@ from rich.panel import Panel
 from rich.table import Table
 
 from quantcode.compaction import ResearchTraceCompiler
+from quantcode.dashboard.backtest import BacktestResult
 from quantcode.memory import Memory
 from quantcode.pipeline import run_from_url, run_research
-from quantcode.schemas import QuantResearchPacket, StrategySpec
+from quantcode.schemas import Lesson, QuantResearchPacket, StrategySpec
 from quantcode.workspace import WorkspaceManager
 
 app = typer.Typer(help="QuantCode — Claude Code for systematic strategy research (CLI-first).")
@@ -119,12 +121,18 @@ def _news_query(spec: StrategySpec) -> str:
     return f"{spec.strategy_family.replace('_', ' ')} {_asset_word(spec.universe)}"
 
 
-def _print_check(packet: QuantResearchPacket, spec: StrategySpec, papers: int, news: int) -> None:
+def _print_check(
+    packet: QuantResearchPacket,
+    spec: StrategySpec,
+    papers: int,
+    news: int,
+    result: BacktestResult | None = None,
+) -> BacktestResult:
     from quantcode.dashboard import sources
     from quantcode.dashboard.backtest import run_backtest
 
     console.print(Panel(spec.hypothesis, title=f"{packet.run_id} · {spec.strategy_name}"))
-    result = run_backtest(spec)
+    result = result or run_backtest(spec)
 
     table = Table(title="Backtest")
     table.add_column("metric")
@@ -162,6 +170,147 @@ def _print_check(packet: QuantResearchPacket, spec: StrategySpec, papers: int, n
     if not news_rows:
         news_table.add_row("—", "No Google News results returned", "—")
     console.print(news_table)
+    return result
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_") or "strategy"
+
+
+def _ascii_curve(result: BacktestResult, width: int = 16) -> str:
+    pts = result.equity
+    if len(pts) < 2:
+        return "Pnl curve: n/a"
+    step = max(1, len(pts) // width)
+    vals = [p.equity for p in pts[::step]]
+    if vals[-1] != pts[-1].equity:
+        vals.append(pts[-1].equity)
+    lo, hi = min(vals), max(vals)
+    chars = "._-:=+*#%@"
+    if hi == lo:
+        body = chars[len(chars) // 2] * len(vals)
+    else:
+        body = "".join(chars[min(len(chars) - 1, int((v - lo) / (hi - lo) * (len(chars) - 1)))] for v in vals)
+    return f"Pnl curve: {vals[0]:.1f} {body} {vals[-1]:.1f}"
+
+
+def _backtest_lessons(packet: QuantResearchPacket, spec: StrategySpec, result: BacktestResult, round_no: int) -> list[Lesson]:
+    prefix = f"{packet.run_id}:bt:{_slug(spec.strategy_name)}:r{round_no}"
+    lessons: list[Lesson] = []
+    if result.sharpe < 0.5:
+        msg = "daily rebalance likely too costly" if result.rebalance == "daily" else "signal family showed weak Sharpe in this construction"
+        lessons.append(
+            Lesson(
+                lesson_id=f"{prefix}:weak_sharpe",
+                text=f"{spec.strategy_name}: Sharpe {result.sharpe:.2f}; {msg}.",
+                kind="warning",
+                source_run_id=packet.run_id,
+                confidence=0.8,
+            )
+        )
+    if result.max_drawdown <= -0.12:
+        lessons.append(
+            Lesson(
+                lesson_id=f"{prefix}:drawdown",
+                text=f"{spec.strategy_name}: max drawdown {result.max_drawdown:.2%}; tighten risk rules before re-testing.",
+                kind="mutation_rule",
+                source_run_id=packet.run_id,
+                confidence=0.85,
+            )
+        )
+    if spec.backtest_readiness == "ready_with_proxy_limitations" and result.total_return <= 0:
+        lessons.append(
+            Lesson(
+                lesson_id=f"{prefix}:proxy",
+                text=f"{spec.strategy_name}: proxy-based construction underperformed; prefer direct data over proxy variants.",
+                kind="data_constraint",
+                source_run_id=packet.run_id,
+                confidence=0.8,
+            )
+        )
+    if result.sharpe >= 0.75 and result.max_drawdown > -0.1:
+        lessons.append(
+            Lesson(
+                lesson_id=f"{prefix}:pattern",
+                text=f"{spec.strategy_name}: {spec.ranking_rule.feature if spec.ranking_rule else 'signal'} held up with Sharpe {result.sharpe:.2f} and max drawdown {result.max_drawdown:.2%}.",
+                kind="pattern",
+                source_run_id=packet.run_id,
+                confidence=0.8,
+            )
+        )
+    if not lessons:
+        lessons.append(
+            Lesson(
+                lesson_id=f"{prefix}:baseline",
+                text=f"{spec.strategy_name}: return {result.total_return:+.2%}, Sharpe {result.sharpe:.2f}, max drawdown {result.max_drawdown:.2%}; keep as a measured baseline before changing parameters.",
+                kind="warning",
+                source_run_id=packet.run_id,
+                confidence=0.75,
+            )
+        )
+    return lessons
+
+
+def _print_lessons(lessons: list[Lesson]) -> None:
+    table = Table(title="Backtest-derived lessons")
+    table.add_column("kind")
+    table.add_column("lesson")
+    for lesson in lessons:
+        table.add_row(lesson.kind, lesson.text)
+    console.print(table)
+
+
+def _mutate_spec(spec: StrategySpec, wm: WorkspaceManager) -> StrategySpec:
+    current_hold = spec.risk_rules.max_holding_days or 0
+    hold_raw = typer.prompt(
+        f"max holding days [{current_hold or 'unchanged'}]",
+        default=str(current_hold) if current_hold else "",
+        show_default=False,
+    ).strip()
+    new_hold = spec.risk_rules.max_holding_days if not hold_raw else int(hold_raw)
+    rebalance = typer.prompt(
+        "rebalance [daily|weekly|monthly]",
+        default=spec.portfolio_rules.rebalance_frequency,
+    ).strip()
+    updated = spec.model_copy(
+        update={
+            "risk_rules": spec.risk_rules.model_copy(update={"max_holding_days": new_hold}),
+            "portfolio_rules": spec.portfolio_rules.model_copy(update={"rebalance_frequency": rebalance}),
+        }
+    )
+    path = wm.write_strategy_yaml(updated)
+    console.print(f"[dim]wrote revised strategy: {path}[/dim]")
+    return updated
+
+
+def _learn_from_check(packet: QuantResearchPacket, spec: StrategySpec, papers: int, news: int) -> None:
+    from quantcode.dashboard.backtest import run_backtest
+
+    wm = WorkspaceManager()
+    mem = Memory.connect()
+    round_no = 1
+    current = spec
+    while True:
+        result = run_backtest(current)
+        _print_check(packet, current, papers=papers, news=news, result=result)
+        console.print(_ascii_curve(result))
+        lessons = _backtest_lessons(packet, current, result, round_no)
+        _print_lessons(lessons)
+        action = typer.prompt(
+            "next action [stop|iterate|adjust]",
+            default="stop",
+        ).strip().lower()
+        if action == "stop":
+            promote = typer.confirm("promote these backtest lessons to Tier 3?", default=False)
+            if promote:
+                promoted = mem.curator.promote(lessons, approved=True)["promoted"]
+                console.print(f"[green]promoted {len(promoted)} lesson(s).[/green]")
+            return
+        if action == "adjust":
+            current = _mutate_spec(current, wm)
+        round_no += 1
+        if not typer.confirm("run another backtest round?", default=False):
+            return
 
 
 @app.command()
@@ -261,6 +410,7 @@ def check(
     strategy_name: str | None = typer.Option(None, "--strategy", "-s", help="Check one strategy."),
     papers: int = typer.Option(3, help="Number of arXiv papers to fetch per strategy."),
     news: int = typer.Option(4, help="Number of Google News items to fetch per strategy."),
+    learn: bool = typer.Option(False, "--learn", help="Derive lessons and offer one approved re-test round."),
 ) -> None:
     """Backtest strategy specs and pull relevant papers/news from the terminal."""
     packet = _load_packet(target)
@@ -271,7 +421,10 @@ def check(
         )
         raise typer.Exit(1)
     for spec in specs:
-        _print_check(packet, spec, papers=papers, news=news)
+        if learn:
+            _learn_from_check(packet, spec, papers=papers, news=news)
+        else:
+            _print_check(packet, spec, papers=papers, news=news)
 
 
 @app.command()
