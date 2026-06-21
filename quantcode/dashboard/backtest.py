@@ -18,7 +18,7 @@ import io
 import math
 import urllib.request
 from datetime import UTC
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -87,6 +87,20 @@ class PaperTradePlan(BaseModel):
     signal: str
     picks: list[PaperSignal]
     note: str
+
+
+class PaperOrder(BaseModel):
+    as_of: str | None
+    side: Literal["BUY", "SELL"]
+    ticker: str
+    shares: float
+    price: float
+    notional: float
+    signal_value: float | None = None
+    target_weight: float
+    current_shares: float
+    target_shares: float
+    reason: str
 
 
 # --------------------------------------------------------------------------- price sources
@@ -391,6 +405,52 @@ def build_paper_plan(spec: StrategySpec) -> PaperTradePlan:
     )
 
 
+def size_paper_orders(
+    plan: PaperTradePlan, positions: dict[str, float], equity: float
+) -> tuple[list[PaperOrder], dict[str, float], float]:
+    """Turn the latest signal snapshot into concrete paper orders."""
+    prices = {pick.ticker: pick.price for pick in plan.picks}
+    weights = {pick.ticker: pick.weight for pick in plan.picks}
+    signals = {pick.ticker: pick.signal_value for pick in plan.picks}
+    targets = {
+        pick.ticker: round(equity * pick.weight / pick.price, 4) for pick in plan.picks if pick.price > 0
+    }
+    orders: list[PaperOrder] = []
+    stamp = plan.as_of or "latest"
+    for ticker in sorted(set(positions) | set(targets)):
+        current = round(positions.get(ticker, 0.0), 4)
+        target = round(targets.get(ticker, 0.0), 4)
+        delta = round(target - current, 4)
+        if abs(delta) < 1e-6:
+            continue
+        price = round(prices.get(ticker, 0.0), 2)
+        sig = signals.get(ticker)
+        orders.append(
+            PaperOrder(
+                as_of=plan.as_of,
+                side="BUY" if delta > 0 else "SELL",
+                ticker=ticker,
+                shares=abs(delta),
+                price=price,
+                notional=round(abs(delta) * price, 2),
+                signal_value=round(sig, 4) if sig is not None else None,
+                target_weight=round(weights.get(ticker, 0.0), 4),
+                current_shares=current,
+                target_shares=target,
+                reason=(
+                    f"{plan.signal} @ {stamp}; "
+                    f"signal {sig:.4f}; target {target:.4f} vs current {current:.4f}"
+                    if sig is not None
+                    else f"{plan.signal} @ {stamp}; target {target:.4f} vs current {current:.4f}"
+                ),
+            )
+        )
+    new_positions = {ticker: shares for ticker, shares in targets.items() if shares > 0}
+    invested = sum(new_positions[ticker] * prices[ticker] for ticker in new_positions)
+    new_cash = round(equity - invested, 2)
+    return orders, new_positions, new_cash
+
+
 def _asset_tag(universe: str) -> str:
     u = universe.lower()
     if "fx" in u or "currenc" in u or "g10" in u:
@@ -432,12 +492,16 @@ def _demo() -> None:
 
     res = run_backtest(sample_strategy_spec())
     plan = build_paper_plan(sample_strategy_spec())
+    orders, new_positions, new_cash = size_paper_orders(plan, positions={}, equity=100000.0)
     assert res.equity[0].equity == 100.0, "curve must start at 100"
     assert res.periods > 0, "should have rebalanced at least once"
     assert -1.0 <= res.max_drawdown <= 0.0, f"bad drawdown {res.max_drawdown}"
     assert 0.0 <= res.win_rate <= 1.0, f"bad win rate {res.win_rate}"
     assert len(res.equity) == res.periods + 1, "equity points = periods + 1"
     assert plan.picks, "paper plan must produce picks"
+    assert orders, "paper plan must size at least one order"
+    assert new_positions, "paper sizing must produce target positions"
+    assert new_cash >= 0.0, "paper sizing cash should not go negative"
     print(f"OK: {res.source} | periods={res.periods} | ret={res.total_return:+.2%} "
           f"| sharpe={res.sharpe} | maxDD={res.max_drawdown:.2%} | win={res.win_rate:.0%}")
 

@@ -430,9 +430,15 @@ export interface PaperTradePlan {
 export interface PaperOrder {
   side: "BUY" | "SELL";
   ticker: string;
+  as_of: string | null;
   shares: number;
   price: number;
   notional: number;
+  signal_value: number | null;
+  target_weight: number;
+  current_shares: number;
+  target_shares: number;
+  reason: string;
 }
 
 export interface PaperPortfolioState {

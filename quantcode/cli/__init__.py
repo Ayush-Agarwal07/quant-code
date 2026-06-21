@@ -19,7 +19,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from quantcode.compaction import ResearchTraceCompiler
-from quantcode.dashboard.backtest import BacktestResult, build_paper_plan
+from quantcode.dashboard.backtest import BacktestResult, build_paper_plan, size_paper_orders
 from quantcode.memory import Memory
 from quantcode.pipeline import run_from_url, run_research
 from quantcode.schemas import Lesson, QuantResearchPacket, StrategySpec
@@ -385,20 +385,7 @@ def _run_paper_live(
     if equity <= 0:
         equity = starting_cash
 
-    targets = {pick.ticker: round(equity * pick.weight / pick.price, 4) for pick in plan.picks if pick.price > 0}
-    orders: list[tuple[str, str, float, float, float]] = []
-    for tk in sorted(set(positions) | set(targets)):
-        current = positions.get(tk, 0.0)
-        target = targets.get(tk, 0.0)
-        delta = round(target - current, 4)
-        if abs(delta) < 1e-6:
-            continue
-        action = "BUY" if delta > 0 else "SELL"
-        orders.append((action, tk, abs(delta), prices.get(tk, 0.0), round(delta * prices.get(tk, 0.0), 2)))
-
-    new_positions = {tk: shares for tk, shares in targets.items() if shares > 0}
-    invested = sum(new_positions[tk] * prices[tk] for tk in new_positions)
-    new_cash = round(equity - invested, 2)
+    orders, new_positions, new_cash = size_paper_orders(plan, positions, equity)
     history = list(state.get("history", []))[-19:] if state else []
     history.append({"as_of": plan.as_of, "equity": round(equity, 2)})
     path = wm.write_paper_state(
@@ -443,11 +430,19 @@ def _run_paper_live(
     order_table.add_column("shares")
     order_table.add_column("price")
     order_table.add_column("notional")
+    order_table.add_column("reason")
     if orders:
-        for side, tk, shares, price, notional in orders:
-            order_table.add_row(side, tk, f"{shares:.4f}", f"${price:.2f}", f"${abs(notional):,.2f}")
+        for order in orders:
+            order_table.add_row(
+                order.side,
+                order.ticker,
+                f"{order.shares:.4f}",
+                f"${order.price:.2f}",
+                f"${order.notional:,.2f}",
+                order.reason,
+            )
     else:
-        order_table.add_row("HOLD", "—", "0", "—", "$0.00")
+        order_table.add_row("HOLD", "—", "0", "—", "$0.00", "already at target")
     console.print(order_table)
     console.print(f"[dim]paper state: {path}[/dim]")
 

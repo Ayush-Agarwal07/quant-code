@@ -480,7 +480,7 @@ def _paper_trade_result(
     starting_cash: float,
     reset: bool,
 ) -> dict[str, Any]:
-    from quantcode.dashboard.backtest import build_paper_plan
+    from quantcode.dashboard.backtest import build_paper_plan, size_paper_orders
 
     plan = build_paper_plan(spec)
     if not plan.picks:
@@ -493,29 +493,7 @@ def _paper_trade_result(
     if equity <= 0:
         equity = starting_cash
 
-    targets = {
-        pick.ticker: round(equity * pick.weight / pick.price, 4) for pick in plan.picks if pick.price > 0
-    }
-    orders: list[dict[str, Any]] = []
-    for ticker in sorted(set(positions) | set(targets)):
-        current = positions.get(ticker, 0.0)
-        target = targets.get(ticker, 0.0)
-        delta = round(target - current, 4)
-        if abs(delta) < 1e-6:
-            continue
-        orders.append(
-            {
-                "side": "BUY" if delta > 0 else "SELL",
-                "ticker": ticker,
-                "shares": abs(delta),
-                "price": prices.get(ticker, 0.0),
-                "notional": round(abs(delta) * prices.get(ticker, 0.0), 2),
-            }
-        )
-
-    new_positions = {ticker: shares for ticker, shares in targets.items() if shares > 0}
-    invested = sum(new_positions[ticker] * prices[ticker] for ticker in new_positions)
-    new_cash = round(equity - invested, 2)
+    orders, new_positions, new_cash = size_paper_orders(plan, positions, equity)
     history = list(state.get("history", []))[-19:] if state else []
     history.append({"as_of": plan.as_of, "equity": round(equity, 2)})
     state_path = wm.write_paper_state(
@@ -534,7 +512,7 @@ def _paper_trade_result(
     )
     return {
         "plan": plan.model_dump(mode="json"),
-        "orders": orders,
+        "orders": [order.model_dump(mode="json") for order in orders],
         "portfolio": {
             "run_id": packet.run_id,
             "strategy_name": spec.strategy_name,

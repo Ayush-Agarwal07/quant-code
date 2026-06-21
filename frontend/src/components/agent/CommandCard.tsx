@@ -177,7 +177,7 @@ export function CommandCard({
                 <ul className="font-mono text-[10px] text-foreground/85">
                   {job.result.paper_trade.orders.map((o) => (
                     <li key={`${o.side}-${o.ticker}`}>
-                      {o.side} {o.shares} {o.ticker} @ ${o.price} (${o.notional})
+                      {o.side} {o.shares} {o.ticker} @ ${o.price} (${o.notional}){o.reason ? ` · ${o.reason}` : ""}
                     </li>
                   ))}
                 </ul>
