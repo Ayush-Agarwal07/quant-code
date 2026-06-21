@@ -18,6 +18,13 @@ from quantcode.memory.tier2_episodic import EpisodicMemory
 from quantcode.memory.tier3_semantic import SemanticMemory
 from quantcode.schemas import EpisodeRecord, Lesson
 
+# Tier-3 signal floor. The compiler tags critical lessons (critic/feasibility/failed) 0.6
+# and generic step lessons ("[StrategyWriterAgent] 3 item(s)") 0.4, so 0.5 promotes the
+# high-signal ones and keeps the generic noise out of the long-term belief set.
+# ponytail: one threshold, not a classifier — raise it if Tier 3 still reads generic, or
+# enrich step summaries (task 06 option 2) so more steps clear the bar honestly.
+_TIER3_MIN_CONFIDENCE = 0.5
+
 
 @dataclass
 class CurationResult:
@@ -75,8 +82,11 @@ class MemoryCurator:
         )
 
     def promote(self, lessons: list[Lesson], approved: bool = False) -> dict[str, list[Lesson]]:
-        """🧑‍⚖️ HITL-gated Tier-3 write. Unless `approved` (or QC_AUTO_PROMOTE=1), lessons
-        are returned as `pending` and NOT written. Returns {'promoted': [...], 'pending': [...]}."""
+        """🧑‍⚖️ HITL-gated Tier-3 write. Low-signal lessons (confidence below the Tier-3 floor)
+        are dropped FIRST — they never reach the belief set, approved or not. Unless `approved`
+        (or QC_AUTO_PROMOTE=1), the rest are returned as `pending` and NOT written. Returns
+        {'promoted': [...], 'pending': [...]}."""
+        lessons = [x for x in lessons if x.confidence >= _TIER3_MIN_CONFIDENCE]
         auto = os.getenv("QC_AUTO_PROMOTE") == "1"
         if not (approved or auto):
             return {"promoted": [], "pending": list(lessons)}

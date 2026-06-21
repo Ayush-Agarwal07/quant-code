@@ -1,6 +1,19 @@
 # 06 — Tier-3 lesson quality
 
-**Status:** OPEN. **Priority:** ★ high. **Effort:** L–M.
+**Status:** DONE (2026-06-20, option 1 — verified live on Redis). **Priority:** ★ high. **Effort:** L–M.
+
+**What shipped:** a Tier-3 confidence floor (`_TIER3_MIN_CONFIDENCE = 0.5`) in
+`MemoryCurator.promote()` — the single chokepoint every Tier-3 write funnels through
+(the pipeline calls `promote()` directly, bypassing `curate()`/`_valid`). The compiler
+already tags critic/feasibility/failed lessons 0.6 and generic step lessons 0.4, so the
+floor promotes only high-signal lessons. Left the compiler "propose, don't judge" and the
+compaction metrics/self-check untouched. Self-check added in `quantcode/memory/__main__.py`.
+Verified live: `memory search` + the run-2 recall panel now show only `warning`/`data_constraint`
+lessons — zero `"N item(s)"` noise. Promoted lessons/run dropped 9 → 2.
+
+**Still open (option 3, optional):** cross-run dedup — the same lesson re-learned each run
+appears once per run in the explorer (e.g. run_005 + run_006 identical critic lesson). Not
+required for acceptance; collapse near-dups in the curator if the explorer looks cluttered.
 
 ## Why it matters
 The Redis memory-explorer / `memory search` demo is only as good as the lessons it shows. Today
