@@ -4,8 +4,8 @@ import "katex/dist/katex.min.css";
 import { TopNav } from "@/components/layout/TopNav";
 
 export const metadata: Metadata = {
-  title: "QuantForge",
-  description: "Read-only strategy research workspace for the QuantForge research pipeline",
+  title: "QuantCode",
+  description: "Read-only strategy research workspace for the QuantCode research pipeline",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
