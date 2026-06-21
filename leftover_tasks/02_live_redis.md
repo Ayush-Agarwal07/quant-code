@@ -1,6 +1,8 @@
 # 02 — Live Redis smoke-test (Docker / Homebrew / Redis Cloud)
 
-**Status:** OPEN (deferred — Docker not installed). **Priority:** high. **Effort:** L (~15 min once a server is up).
+**Status:** DONE (2026-06-20 — verified live on `redis/redis-stack:latest` via Docker). **Priority:** high. **Effort:** L (~15 min once a server is up).
+
+**Verified:** `quantcode demo` → `memory backend: redis`; `qc:index:lessons` exists (HNSW, DIM 384, COSINE, 36 docs); Tier 1 trace TTL ~3600 / Tier 2+3 = -1; `memory search` returns cosine-ranked lessons server-side. Setup: `.venv` from `requirements.txt` (`-e .`), container `quantcode-redis` on :6379/:8001.
 
 ## Why it matters
 Redis is the headline sponsor track. The offline in-memory fallback is CI-tested, but the
