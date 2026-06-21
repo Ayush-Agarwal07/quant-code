@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Loader2, Play } from "lucide-react";
 
 import { api } from "@/lib/api";
-import type { AgentCommandJob, AgentCommandRequest, StrategyAdjustments } from "@/types";
+import { writeIterationDraft } from "@/lib/iterationDraft";
+import type { AgentCommandJob, AgentCommandRequest, BacktestResult, StrategyAdjustments, StrategySpec } from "@/types";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -55,21 +56,51 @@ export function CommandCard({
   title,
   detail,
   runLabel = "Run",
+  onSaveIteration,
 }: {
   request: AgentCommandRequest;
   title: string;
   detail: string;
   runLabel?: string;
+  onSaveIteration?: (payload: {
+    runId: string;
+    strategyName: string;
+    spec: StrategySpec;
+    backtest: BacktestResult | null;
+  }) => Promise<void>;
 }) {
   const [phase, setPhase] = useState<"idle" | "confirm" | "running" | "done" | "error">("idle");
   const [job, setJob] = useState<AgentCommandJob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [objective, setObjective] = useState(request.objective ?? "");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "done" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
   const isStrategy = request.command === "strategy";
+
+  useEffect(() => {
+    if (job?.status !== "done") return;
+    const result = job.result;
+    if (
+      result?.command === "iterate" &&
+      result.adjusted_spec &&
+      result.run_id &&
+      result.strategy_name
+    ) {
+      writeIterationDraft({
+        runId: result.run_id,
+        strategyName: result.strategy_name,
+        spec: result.adjusted_spec,
+        backtest: result.backtest ?? null,
+        savedAt: Date.now(),
+      });
+    }
+  }, [job]);
 
   const launch = async (adjustments?: StrategyAdjustments) => {
     setPhase("running");
     setError(null);
+    setSaveState("idle");
+    setSaveError(null);
     try {
       const payload = isStrategy
         ? { ...request, objective: objective.trim() || request.objective }
@@ -96,6 +127,39 @@ export function CommandCard({
     } catch (err) {
       setError(err instanceof Error ? err.message : "request failed");
       setPhase("error");
+    }
+  };
+
+  useEffect(() => {
+    if (job?.result?.command !== "iterate") return;
+    setSaveState("idle");
+    setSaveError(null);
+  }, [job?.result?.command, job?.result?.backtest, job?.result?.adjusted_spec]);
+
+  const saveIteration = async () => {
+    const result = job?.result;
+    if (
+      !onSaveIteration ||
+      result?.command !== "iterate" ||
+      !result.adjusted_spec ||
+      !result.run_id ||
+      !result.strategy_name
+    ) {
+      return;
+    }
+    setSaveState("saving");
+    setSaveError(null);
+    try {
+      await onSaveIteration({
+        runId: result.run_id,
+        strategyName: result.strategy_name,
+        spec: result.adjusted_spec,
+        backtest: result.backtest ?? null,
+      });
+      setSaveState("done");
+    } catch (err) {
+      setSaveState("error");
+      setSaveError(err instanceof Error ? err.message : "save failed");
     }
   };
 
@@ -199,6 +263,17 @@ export function CommandCard({
                 ↻ Iterate again
               </button>
             )}
+            {job.result?.command === "iterate" && job.result.adjusted_spec && onSaveIteration && (
+              <button
+                type="button"
+                onClick={() => void saveIteration()}
+                disabled={saveState === "saving" || saveState === "done"}
+                className="inline-flex items-center gap-1.5 rounded border border-border bg-foreground/[0.06] px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-foreground transition-colors hover:bg-foreground/10 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {saveState === "saving" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                {saveState === "done" ? "Saved iteration" : "Save iteration"}
+              </button>
+            )}
             {runLink(job) && (
               <Link
                 href={runLink(job)!}
@@ -208,6 +283,9 @@ export function CommandCard({
               </Link>
             )}
           </div>
+          {saveState === "error" && saveError && (
+            <p className="font-mono text-[10px] text-destructive">save iteration failed: {saveError}</p>
+          )}
         </div>
       )}
 

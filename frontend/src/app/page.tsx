@@ -44,6 +44,7 @@ import {
   YAxis,
 } from "recharts";
 import { api } from "@/lib/api";
+import { clearIterationDraft } from "@/lib/iterationDraft";
 import { useApi } from "@/lib/useApi";
 import { CommandCard } from "@/components/agent/CommandCard";
 import { Card, Label, Pill, Prose } from "@/components/ui/primitives";
@@ -208,6 +209,30 @@ function Dashboard({
     [selectedIndex, specs]
   );
 
+  const saveIteration = async ({
+    runId,
+    strategyName,
+    spec: nextSpec,
+    backtest,
+  }: {
+    runId: string;
+    strategyName: string;
+    spec: StrategySpec;
+    backtest: BacktestResult | null;
+  }) => {
+    await api.saveStrategy({ run_id: runId, strategy_name: strategyName, spec: nextSpec });
+    setSpecs((items) => {
+      const updated = items.map((item) => (item.strategy_name === strategyName ? nextSpec : item));
+      setPacket((current) => ({ ...current, strategy_specs: updated }));
+      return updated;
+    });
+    if (backtest) {
+      const key = `${runId}::${strategyName}::${JSON.stringify(nextSpec)}`;
+      BACKTEST_CACHE.set(key, backtest);
+    }
+    clearIterationDraft(runId, strategyName);
+  };
+
   if (!spec) {
     return (
       <div className="p-6">
@@ -255,6 +280,7 @@ function Dashboard({
           return updated;
         })
       }
+      onSaveIteration={saveIteration}
       selected={selected}
       provider={provider}
       versionLoading={versionLoading}
@@ -271,6 +297,7 @@ function DashboardBody({
   onSelect,
   onSelectVersion,
   onUpdateSpec,
+  onSaveIteration,
   provider,
   versionLoading,
 }: {
@@ -282,6 +309,12 @@ function DashboardBody({
   onSelect: (name: string) => void;
   onSelectVersion: (runId: string) => void;
   onUpdateSpec: (spec: StrategySpec) => void;
+  onSaveIteration: (payload: {
+    runId: string;
+    strategyName: string;
+    spec: StrategySpec;
+    backtest: BacktestResult | null;
+  }) => Promise<void>;
   provider: string;
   versionLoading: boolean;
 }) {
@@ -298,6 +331,7 @@ function DashboardBody({
           spec={spec}
           provider={provider}
           latexOpen={latexOpen}
+          onSaveIteration={onSaveIteration}
           onToggleLatex={() => setLatexOpen((v) => !v)}
         />
         <CenterColumn
@@ -326,6 +360,7 @@ function DashboardBody({
           spec={spec}
           provider={provider}
           onUpdateSpec={onUpdateSpec}
+          onSaveIteration={onSaveIteration}
           onClose={() => setLatexOpen(false)}
         />
       )}
@@ -481,12 +516,19 @@ function ChatColumn({
   spec,
   provider,
   latexOpen,
+  onSaveIteration,
   onToggleLatex,
 }: {
   packet: QuantResearchPacket;
   spec: StrategySpec;
   provider: string;
   latexOpen: boolean;
+  onSaveIteration: (payload: {
+    runId: string;
+    strategyName: string;
+    spec: StrategySpec;
+    backtest: BacktestResult | null;
+  }) => Promise<void>;
   onToggleLatex: () => void;
 }) {
   return (
@@ -496,6 +538,7 @@ function ChatColumn({
         spec={spec}
         provider={provider}
         latexOpen={latexOpen}
+        onSaveIteration={onSaveIteration}
         onToggleLatex={onToggleLatex}
       />
     </div>
@@ -507,6 +550,7 @@ function ChatPanel({
   spec,
   provider,
   latexOpen,
+  onSaveIteration,
   onToggleLatex,
   expanded = false,
 }: {
@@ -514,6 +558,12 @@ function ChatPanel({
   spec: StrategySpec;
   provider: string;
   latexOpen: boolean;
+  onSaveIteration: (payload: {
+    runId: string;
+    strategyName: string;
+    spec: StrategySpec;
+    backtest: BacktestResult | null;
+  }) => Promise<void>;
   onToggleLatex: () => void;
   expanded?: boolean;
 }) {
@@ -640,7 +690,13 @@ function ChatPanel({
             ) : "pending" in m ? (
               <PendingBubble key={m.id} />
             ) : "command" in m ? (
-              <CommandBubble key={m.id} title={m.command.title} detail={m.command.detail} request={m.command.request} />
+              <CommandBubble
+                key={m.id}
+                title={m.command.title}
+                detail={m.command.detail}
+                request={m.command.request}
+                onSaveIteration={onSaveIteration}
+              />
             ) : (
               <AssistantBubble key={m.id} reply={m.reply} provider={m.provider} onUseSuggestion={populatePrompt} />
             )
@@ -685,16 +741,29 @@ function CommandBubble({
   title,
   detail,
   request,
+  onSaveIteration,
 }: {
   title: string;
   detail: string;
   request: AgentCommandRequest;
+  onSaveIteration: (payload: {
+    runId: string;
+    strategyName: string;
+    spec: StrategySpec;
+    backtest: BacktestResult | null;
+  }) => Promise<void>;
 }) {
   return (
     <div className="flex gap-2">
       <BotAvatar />
       <div className="min-w-0 flex-1">
-        <CommandCard request={request} title={title} detail={detail} runLabel="Launch" />
+        <CommandCard
+          request={request}
+          title={title}
+          detail={detail}
+          runLabel="Launch"
+          onSaveIteration={onSaveIteration}
+        />
       </div>
     </div>
   );
@@ -705,12 +774,19 @@ function ResearchExpansion({
   spec,
   provider,
   onUpdateSpec,
+  onSaveIteration,
   onClose,
 }: {
   packet: QuantResearchPacket;
   spec: StrategySpec;
   provider: string;
   onUpdateSpec: (spec: StrategySpec) => void;
+  onSaveIteration: (payload: {
+    runId: string;
+    strategyName: string;
+    spec: StrategySpec;
+    backtest: BacktestResult | null;
+  }) => Promise<void>;
   onClose: () => void;
 }) {
   return (
@@ -720,6 +796,7 @@ function ResearchExpansion({
         spec={spec}
         provider={provider}
         latexOpen
+        onSaveIteration={onSaveIteration}
         expanded
         onToggleLatex={onClose}
       />

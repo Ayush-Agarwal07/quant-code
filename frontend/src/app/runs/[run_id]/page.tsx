@@ -15,6 +15,7 @@ import {
   YAxis,
 } from "recharts";
 import { api } from "@/lib/api";
+import { clearIterationDraft, readIterationDraft, type IterationDraft } from "@/lib/iterationDraft";
 import { formatDate, formatInt, humanize } from "@/lib/utils";
 import { useApi } from "@/lib/useApi";
 import {
@@ -84,9 +85,11 @@ function ruleText(r: StrategyRule): string {
 function RunDetail({ packet: p }: { packet: QuantResearchPacket }) {
   const events = [...p.trace_events].sort((a, b) => a.step - b.step);
   const [selectedStrategy, setSelectedStrategy] = useState(p.strategy_specs[0]?.strategy_name ?? "");
+  const [strategySpecs, setStrategySpecs] = useState(p.strategy_specs);
   const [backtest, setBacktest] = useState<BacktestResult | null>(null);
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestError, setBacktestError] = useState<string | null>(null);
+  const [pendingIteration, setPendingIteration] = useState<IterationDraft | null>(null);
 
   const accepted = p.critiques.filter((c) => c.verdict === "accept_for_backtest").length;
   const revise = p.critiques.filter((c) => c.verdict === "revise_before_backtest").length;
@@ -96,21 +99,33 @@ function RunDetail({ packet: p }: { packet: QuantResearchPacket }) {
   ).length;
   const deferred = p.data_feasibility_reports.length - advanced;
   const selectedSpec =
-    p.strategy_specs.find((s) => s.strategy_name === selectedStrategy) ?? p.strategy_specs[0] ?? null;
+    strategySpecs.find((s) => s.strategy_name === selectedStrategy) ?? strategySpecs[0] ?? null;
   const selectedCritique =
     p.critiques.find((c) => c.strategy_name === selectedSpec?.strategy_name) ?? null;
 
   useEffect(() => {
-    if (!p.strategy_specs.length) {
+    setStrategySpecs(p.strategy_specs);
+  }, [p.strategy_specs]);
+
+  useEffect(() => {
+    if (!strategySpecs.length) {
       setSelectedStrategy("");
       return;
     }
     setSelectedStrategy((current) =>
-      p.strategy_specs.some((spec) => spec.strategy_name === current)
+      strategySpecs.some((spec) => spec.strategy_name === current)
         ? current
-        : p.strategy_specs[0].strategy_name
+        : strategySpecs[0].strategy_name
     );
-  }, [p.strategy_specs]);
+  }, [strategySpecs]);
+
+  useEffect(() => {
+    if (!selectedSpec) {
+      setPendingIteration(null);
+      return;
+    }
+    setPendingIteration(readIterationDraft(p.run_id, selectedSpec.strategy_name));
+  }, [p.run_id, selectedSpec]);
 
   useEffect(() => {
     if (!selectedSpec) {
@@ -135,6 +150,26 @@ function RunDetail({ packet: p }: { packet: QuantResearchPacket }) {
       });
     return () => controller.abort();
   }, [p.run_id, selectedSpec]);
+
+  const saveIteration = async () => {
+    if (!selectedSpec || !pendingIteration) return;
+    await api.saveStrategy({
+      run_id: p.run_id,
+      strategy_name: selectedSpec.strategy_name,
+      spec: pendingIteration.spec,
+    });
+    setStrategySpecs((items) =>
+      items.map((item) =>
+        item.strategy_name === selectedSpec.strategy_name ? pendingIteration.spec : item
+      )
+    );
+    if (pendingIteration.backtest) {
+      setBacktest(pendingIteration.backtest);
+      setBacktestError(null);
+    }
+    clearIterationDraft(p.run_id, selectedSpec.strategy_name);
+    setPendingIteration(null);
+  };
 
   return (
     <div className="space-y-8">
@@ -173,13 +208,15 @@ function RunDetail({ packet: p }: { packet: QuantResearchPacket }) {
         <BacktestReport
           runId={p.run_id}
           strategy={selectedSpec}
-          strategies={p.strategy_specs}
+          strategies={strategySpecs}
           selectedStrategy={selectedStrategy}
           onSelectStrategy={setSelectedStrategy}
           critique={selectedCritique}
           result={backtest}
           loading={backtestLoading}
           error={backtestError}
+          pendingIteration={pendingIteration}
+          onSaveIteration={saveIteration}
         />
       )}
 
@@ -210,11 +247,11 @@ function RunDetail({ packet: p }: { packet: QuantResearchPacket }) {
             hint="The full spec proposed by the pipeline — idea, economic rationale, and every rule."
           />
         </div>
-        {p.strategy_specs.length === 0 ? (
+        {strategySpecs.length === 0 ? (
           <Empty>No strategies proposed.</Empty>
         ) : (
           <ul className="divide-y divide-border">
-            {p.strategy_specs.map((s, index) => (
+            {strategySpecs.map((s, index) => (
               <StrategyDetail key={`${index}::${s.strategy_name}`} spec={s} />
             ))}
           </ul>
@@ -677,6 +714,8 @@ function BacktestReport({
   result,
   loading,
   error,
+  pendingIteration,
+  onSaveIteration,
 }: {
   runId: string;
   strategy: StrategySpec;
@@ -687,6 +726,8 @@ function BacktestReport({
   result: BacktestResult | null;
   loading: boolean;
   error: string | null;
+  pendingIteration: IterationDraft | null;
+  onSaveIteration: () => Promise<void>;
 }) {
   const curve = useMemo(() => buildReportCurve(result), [result]);
   const stats = useMemo(() => summarizeBacktest(result, curve), [result, curve]);
@@ -699,20 +740,31 @@ function BacktestReport({
           title="Run report"
           hint="PnL over the last two years, executed rebalance activity, and a plain-English read on the strategy."
           right={
-            <label className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              Strategy
-              <select
-                value={selectedStrategy}
-                onChange={(e) => onSelectStrategy(e.target.value)}
-                className="rounded border border-border bg-background px-2 py-1 font-mono text-[11px] uppercase tracking-widest text-foreground outline-none transition-colors hover:bg-accent"
-              >
-                {strategies.map((spec) => (
-                  <option key={spec.strategy_name} value={spec.strategy_name}>
-                    {spec.strategy_name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                Strategy
+                <select
+                  value={selectedStrategy}
+                  onChange={(e) => onSelectStrategy(e.target.value)}
+                  className="rounded border border-border bg-background px-2 py-1 font-mono text-[11px] uppercase tracking-widest text-foreground outline-none transition-colors hover:bg-accent"
+                >
+                  {strategies.map((spec) => (
+                    <option key={spec.strategy_name} value={spec.strategy_name}>
+                      {spec.strategy_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {pendingIteration && (
+                <button
+                  type="button"
+                  onClick={() => void onSaveIteration()}
+                  className="rounded border border-border bg-foreground/[0.06] px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-foreground transition-colors hover:bg-foreground/10"
+                >
+                  Save iteration
+                </button>
+              )}
+            </div>
           }
         />
       </div>
