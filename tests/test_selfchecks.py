@@ -26,6 +26,7 @@ MODULES = [
     "memory",
     "pipeline",
     "cli",
+    "benchmarks",
 ]
 
 
@@ -34,6 +35,7 @@ def test_module_selfcheck(mod: str) -> None:
     env = {
         **os.environ,
         "QC_MEMORY_BACKEND": "memory",  # no Redis server needed
+        "QC_LLM_PROVIDER": "mock",  # offline/deterministic — ignore any real provider in .env
         "QC_WORKSPACE": tempfile.mkdtemp(),  # isolate artifacts per module
     }
     result = subprocess.run(
