@@ -46,6 +46,7 @@ class OpenAICompatibleClient:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
+        self.last_usage: dict[str, Any] = {}
 
     def generate_structured(
         self, prompt: str, schema: type[BaseModel], context: dict[str, Any] | None = None
@@ -79,6 +80,7 @@ class OpenAICompatibleClient:
         try:
             with urlopen(request, timeout=60) as response:  # noqa: S310
                 payload = json.loads(response.read().decode("utf-8"))
+            self.last_usage = payload.get("usage") or {}
             return schema.model_validate_json(payload["choices"][0]["message"]["content"])
         except (URLError, KeyError, TypeError, ValueError) as exc:
             raise LLMError(f"openai_compatible structured generation failed: {exc}") from exc
@@ -92,6 +94,7 @@ class OllamaClient:
     def __init__(self, *, base_url: str, model: str | None) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.last_usage: dict[str, Any] = {}
 
     def generate_structured(
         self, prompt: str, schema: type[BaseModel], context: dict[str, Any] | None = None
@@ -116,6 +119,11 @@ class OllamaClient:
         try:
             with urlopen(request, timeout=60) as response:  # noqa: S310
                 payload = json.loads(response.read().decode("utf-8"))
+            self.last_usage = {
+                k: payload[k]
+                for k in ("prompt_eval_count", "eval_count", "total_duration")
+                if k in payload
+            }
             return schema.model_validate_json(payload["message"]["content"])
         except (URLError, KeyError, TypeError, ValueError) as exc:
             raise LLMError(f"ollama structured generation failed: {exc}") from exc
@@ -132,6 +140,7 @@ class AnthropicClient:
     def __init__(self, *, api_key: str | None, model: str | None) -> None:
         self.api_key = api_key
         self.model = model
+        self.last_usage: dict[str, Any] = {}
 
     def generate_structured(
         self, prompt: str, schema: type[BaseModel], context: dict[str, Any] | None = None
@@ -158,6 +167,11 @@ class AnthropicClient:
                 tools=[tool],
                 tool_choice={"type": "tool", "name": schema.__name__},
             )
+            usage = getattr(msg, "usage", None)
+            self.last_usage = {
+                "input_tokens": getattr(usage, "input_tokens", None),
+                "output_tokens": getattr(usage, "output_tokens", None),
+            }
             for block in msg.content:
                 if getattr(block, "type", None) == "tool_use":
                     return schema.model_validate(block.input)

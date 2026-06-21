@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from quantcode.compaction.tokenizer import TokenCounter, get_token_counter
+from quantcode.lesson_quality import CRITICAL_LESSON_CONFIDENCE, SUPPORTING_LESSON_CONFIDENCE
 from quantcode.schemas import ContextPack, Lesson, TraceEvent
 
 # agent_name substrings that mark an event as a critical decision point (D-oracle above).
@@ -240,7 +241,9 @@ class ResearchTraceCompiler:
                     kind=_lesson_kind(event),  # type: ignore[arg-type]  # values match LessonKind
                     source_run_id=run_id,
                     source_critique=event.error if event.status == "failed" else None,
-                    confidence=0.6 if critical else 0.4,
+                    confidence=(
+                        CRITICAL_LESSON_CONFIDENCE if critical else SUPPORTING_LESSON_CONFIDENCE
+                    ),
                 )
             )
             critical_flags.append(critical)

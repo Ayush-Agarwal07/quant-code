@@ -13,17 +13,11 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
+from quantcode.lesson_quality import TIER3_MIN_CONFIDENCE, is_tier3_signal
 from quantcode.memory.client import RedisMemory
 from quantcode.memory.tier2_episodic import EpisodicMemory
 from quantcode.memory.tier3_semantic import SemanticMemory
 from quantcode.schemas import EpisodeRecord, Lesson
-
-# Tier-3 signal floor. The compiler tags critical lessons (critic/feasibility/failed) 0.6
-# and generic step lessons ("[StrategyWriterAgent] 3 item(s)") 0.4, so 0.5 promotes the
-# high-signal ones and keeps the generic noise out of the long-term belief set.
-# ponytail: one threshold, not a classifier — raise it if Tier 3 still reads generic, or
-# enrich step summaries (task 06 option 2) so more steps clear the bar honestly.
-_TIER3_MIN_CONFIDENCE = 0.5
 
 
 @dataclass
@@ -34,6 +28,7 @@ class CurationResult:
     promoted: list[Lesson] = field(default_factory=list)  # written to Tier 3
     pending: list[Lesson] = field(default_factory=list)  # awaiting HITL approval
     rejected: list[Lesson] = field(default_factory=list)  # failed validation
+    dropped: list[Lesson] = field(default_factory=list)  # valid but below Tier-3 signal floor
 
 
 class MemoryCurator:
@@ -79,16 +74,21 @@ class MemoryCurator:
             promoted=promote_out["promoted"],
             pending=promote_out["pending"],
             rejected=rejected,
+            dropped=promote_out["dropped"],
         )
 
     def promote(self, lessons: list[Lesson], approved: bool = False) -> dict[str, list[Lesson]]:
         """🧑‍⚖️ HITL-gated Tier-3 write. Low-signal lessons (confidence below the Tier-3 floor)
         are dropped FIRST — they never reach the belief set, approved or not. Unless `approved`
         (or QC_AUTO_PROMOTE=1), the rest are returned as `pending` and NOT written. Returns
-        {'promoted': [...], 'pending': [...]}."""
-        lessons = [x for x in lessons if x.confidence >= _TIER3_MIN_CONFIDENCE]
+        {'promoted': [...], 'pending': [...], 'dropped': [...]}."""
+        dropped = [x for x in lessons if not is_tier3_signal(x.confidence)]
+        lessons = [x for x in lessons if is_tier3_signal(x.confidence)]
         auto = os.getenv("QC_AUTO_PROMOTE") == "1"
         if not (approved or auto):
-            return {"promoted": [], "pending": list(lessons)}
+            return {"promoted": [], "pending": list(lessons), "dropped": dropped}
         promoted = [self._tier3.write_lesson(lesson) for lesson in lessons]
-        return {"promoted": promoted, "pending": []}
+        return {"promoted": promoted, "pending": [], "dropped": dropped}
+
+
+__all__ = ["CurationResult", "MemoryCurator", "TIER3_MIN_CONFIDENCE"]
