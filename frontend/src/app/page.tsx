@@ -108,6 +108,10 @@ export default function DashboardPage() {
 const READING_CACHE = new Map<string, { reading: CuratedReading; provider: string }>();
 const BACKTEST_CACHE = new Map<string, BacktestResult>();
 
+function strategySlot(index: number, strategyName: string): string {
+  return `${index}::${strategyName}`;
+}
+
 function useStrategyData(packet: QuantResearchPacket, spec: StrategySpec) {
   const specVersion = useMemo(() => JSON.stringify(spec), [spec]);
   const key = `${packet.run_id}::${spec.strategy_name}::${specVersion}`;
@@ -174,24 +178,34 @@ function Dashboard({
 }) {
   const [packet, setPacket] = useState(initialPacket);
   const [specs, setSpecs] = useState(packet.strategy_specs);
-  const [selected, setSelected] = useState(specs[0]?.strategy_name ?? "");
+  const [selected, setSelected] = useState(
+    specs[0] ? strategySlot(0, specs[0].strategy_name) : ""
+  );
   const [versionLoading, setVersionLoading] = useState(false);
 
   useEffect(() => {
     setPacket(initialPacket);
     setSpecs(initialPacket.strategy_specs);
-    setSelected(initialPacket.strategy_specs[0]?.strategy_name ?? "");
+    setSelected(
+      initialPacket.strategy_specs[0]
+        ? strategySlot(0, initialPacket.strategy_specs[0].strategy_name)
+        : ""
+    );
   }, [initialPacket.run_id, initialPacket.strategy_specs]);
 
   useEffect(() => {
-    if (specs.length && !specs.some((s) => s.strategy_name === selected)) {
-      setSelected(specs[0].strategy_name);
+    if (specs.length && !specs.some((s, i) => strategySlot(i, s.strategy_name) === selected)) {
+      setSelected(strategySlot(0, specs[0].strategy_name));
     }
   }, [specs, selected]);
 
-  const spec = useMemo(
-    () => specs.find((s) => s.strategy_name === selected) ?? specs[0] ?? null,
+  const selectedIndex = useMemo(
+    () => specs.findIndex((s, i) => strategySlot(i, s.strategy_name) === selected),
     [specs, selected]
+  );
+  const spec = useMemo(
+    () => (selectedIndex >= 0 ? specs[selectedIndex] : specs[0] ?? null),
+    [selectedIndex, specs]
   );
 
   if (!spec) {
@@ -218,18 +232,25 @@ function Dashboard({
           const next = await api.run(runId);
           setPacket(next);
           setSpecs(next.strategy_specs);
-          setSelected((current) =>
-            next.strategy_specs.some((item) => item.strategy_name === current)
-              ? current
-              : next.strategy_specs[0]?.strategy_name ?? ""
-          );
+          setSelected((current) => {
+            const currentName = specs[selectedIndex]?.strategy_name;
+            const preservedIndex = currentName
+              ? next.strategy_specs.findIndex((item) => item.strategy_name === currentName)
+              : -1;
+            if (preservedIndex >= 0) {
+              return strategySlot(preservedIndex, next.strategy_specs[preservedIndex].strategy_name);
+            }
+            return next.strategy_specs[0] ? strategySlot(0, next.strategy_specs[0].strategy_name) : current;
+          });
         } finally {
           setVersionLoading(false);
         }
       }}
       onUpdateSpec={(next) =>
         setSpecs((items) => {
-          const updated = items.map((item) => (item.strategy_name === next.strategy_name ? next : item));
+          const updated = items.map((item, index) =>
+            strategySlot(index, item.strategy_name) === selected ? next : item
+          );
           setPacket((current) => ({ ...current, strategy_specs: updated }));
           return updated;
         })
@@ -1208,13 +1229,13 @@ function StrategyPanel({
         <div className="grid min-h-[52px] grid-cols-1 items-center gap-2 p-3 md:grid-cols-[auto_minmax(180px,1fr)_minmax(132px,0.55fr)_auto]">
           <Label className="shrink-0">Strategy</Label>
           <select
-            value={spec.strategy_name}
+            value={specs.findIndex((item) => item === spec) >= 0 ? strategySlot(specs.findIndex((item) => item === spec), spec.strategy_name) : ""}
             onChange={(e) => onSelect(e.target.value)}
             className="h-8 min-w-0 rounded border border-border bg-background px-2 font-mono text-[11px] font-semibold text-foreground outline-none focus:border-foreground/40 focus:ring-1 focus:ring-ring"
             aria-label="Strategy"
           >
-            {specs.map((s) => (
-              <option key={s.strategy_name} value={s.strategy_name}>
+            {specs.map((s, index) => (
+              <option key={strategySlot(index, s.strategy_name)} value={strategySlot(index, s.strategy_name)}>
                 {s.strategy_name}
               </option>
             ))}
@@ -1261,10 +1282,10 @@ function packetUpdated(packet: QuantResearchPacket): string {
 
 function strategyMetrics(
   spec: StrategySpec,
-  selected: string,
+  active: boolean,
   selectedBacktest: BacktestResult | null
 ) {
-  if (spec.strategy_name === selected && selectedBacktest?.executed) {
+  if (active && selectedBacktest?.executed) {
     const first = selectedBacktest.equity[0]?.equity ?? 100;
     const curve = selectedBacktest.equity.map((p, x) => ({
       x,
@@ -1322,7 +1343,7 @@ function ExpandedStrategyView({
   specs: StrategySpec[];
   selected: string;
   selectedBacktest: BacktestResult | null;
-  onSelect: (name: string) => void;
+  onSelect: (slot: string) => void;
   onClose: () => void;
 }) {
   const updated = packetUpdated(packet);
@@ -1354,16 +1375,17 @@ function ExpandedStrategyView({
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {specs.map((rowSpec) => {
-              const active = rowSpec.strategy_name === selected;
-              const metrics = strategyMetrics(rowSpec, selected, selectedBacktest);
+            {specs.map((rowSpec, index) => {
+              const slot = strategySlot(index, rowSpec.strategy_name);
+              const active = slot === selected;
+              const metrics = strategyMetrics(rowSpec, active, selectedBacktest);
               const critique = findCritique(packet, rowSpec.strategy_name);
               const feasibility = findFeasibility(packet, rowSpec);
               return (
                 <button
-                  key={rowSpec.strategy_name}
+                  key={slot}
                   type="button"
-                  onClick={() => onSelect(rowSpec.strategy_name)}
+                  onClick={() => onSelect(slot)}
                   className={`grid w-full grid-cols-1 gap-3 border-b border-border p-4 text-left transition-colors hover:bg-foreground/[0.035] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring md:grid-cols-[minmax(210px,1.55fr)_minmax(130px,0.8fr)_80px_96px_112px_96px_106px] md:items-center md:gap-0 ${
                     active ? "bg-foreground/[0.045]" : ""
                   }`}

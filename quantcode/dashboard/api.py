@@ -341,7 +341,12 @@ _RUN_LOCK = threading.Lock()
 def _ascii_curve(points: list[dict[str, Any]] | list[Any], width: int = 20) -> str:
     if len(points) < 2:
         return "Pnl curve: n/a"
-    vals = [float(getattr(p, "equity", p["equity"])) for p in points]
+    vals: list[float] = []
+    for point in points:
+        if isinstance(point, dict):
+            vals.append(float(point["equity"]))
+        else:
+            vals.append(float(point.equity))
     step = max(1, len(vals) // width)
     sampled = vals[::step]
     if sampled[-1] != vals[-1]:
@@ -367,6 +372,28 @@ def _apply_adjustments(spec: StrategySpec, adjustments: StrategyAdjustments | No
             update={"rebalance_frequency": adjustments.rebalance_frequency}
         )
     return spec.model_copy(update={"risk_rules": risk_rules, "portfolio_rules": portfolio_rules})
+
+
+# Rebalance cadence is the only adjustable knob the backtest reacts to, so each step lands on a
+# DIFFERENT cadence (faster when tightening, slower when loosening; nearest-different at a edge).
+_Cadence = Literal["daily", "weekly", "monthly"]
+_FASTER_REBAL: dict[str, _Cadence] = {"daily": "weekly", "weekly": "daily", "monthly": "weekly"}
+_SLOWER_REBAL: dict[str, _Cadence] = {"daily": "weekly", "weekly": "monthly", "monthly": "weekly"}
+
+
+def _auto_adjust(spec: StrategySpec, result: Any) -> tuple[StrategyAdjustments, str]:
+    """Deterministic, explainable revision GROUNDED in the prior backtest, so an un-parameterised
+    Iterate always explores a NEW config (different cadence -> different result) instead of
+    rerunning the identical spec. Weak edge/deep drawdown -> tighten; a decent edge -> more room."""
+    rebal = spec.portfolio_rules.rebalance_frequency
+    hold = spec.risk_rules.max_holding_days or 10
+    if result.sharpe < 0.5 or result.max_drawdown <= -0.2:
+        new_rebal, new_hold = _FASTER_REBAL[rebal], max(2, int(hold * 0.6))
+        why = f"baseline Sharpe {result.sharpe:.2f} weak — tightened to {new_hold}d / {new_rebal}"
+    else:
+        new_rebal, new_hold = _SLOWER_REBAL[rebal], hold + 5
+        why = f"baseline Sharpe {result.sharpe:.2f} ok — more room: {new_hold}d / {new_rebal}"
+    return StrategyAdjustments(max_holding_days=new_hold, rebalance_frequency=new_rebal), why
 
 
 def _backtest_lessons(
@@ -561,11 +588,17 @@ def _run_command_job(job_id: str, payload: dict[str, Any]) -> None:
                 return
 
             packet, spec = _select_packet_and_spec(request, wm)
-            working_spec = (
-                _apply_adjustments(spec, request.adjustments)
-                if request.command == "iterate"
-                else spec
-            )
+            iteration_note: str | None = None
+            if request.command != "iterate":
+                working_spec = spec
+            elif request.adjustments is not None:
+                working_spec = _apply_adjustments(spec, request.adjustments)
+                iteration_note = "applied your parameter adjustments"
+            else:
+                # no explicit edits -> auto-revise from a baseline backtest so Iterate always
+                # explores a new config (otherwise it would rerun the identical spec).
+                auto_adj, iteration_note = _auto_adjust(spec, run_backtest(spec))
+                working_spec = _apply_adjustments(spec, auto_adj)
 
             if request.command in {"check", "iterate"}:
                 round_no = 2 if request.command == "iterate" else 1
@@ -603,8 +636,9 @@ def _run_command_job(job_id: str, payload: dict[str, Any]) -> None:
                         "lessons": [lesson.model_dump(mode="json") for lesson in lessons],
                         "ascii_pnl": _ascii_curve(result.equity),
                         "adjusted_spec": working_spec.model_dump(mode="json")
-                        if request.command == "iterate" and request.adjustments
+                        if request.command == "iterate"
                         else None,
+                        "iteration_note": iteration_note,
                         "promoted_lessons": promoted,
                     },
                 )

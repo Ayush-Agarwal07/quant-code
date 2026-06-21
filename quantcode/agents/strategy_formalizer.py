@@ -9,15 +9,24 @@ from __future__ import annotations
 
 from quantcode.agents.base import Agent
 from quantcode.schemas import CandidateHypothesis, StrategySpec
+from quantcode.tools.feature_catalog import SUPPORTED_OPERATORS, FeatureCatalog
+
+# Inject the validator's allowlist verbatim so a real LLM can't invent features the validator
+# then rejects (the bug: gpt-4o-mini emitted 'earnings announcement date' / 'null' -> 0 specs).
+_FEATURES = ", ".join(FeatureCatalog().list_features())
+_OPERATORS = ", ".join(sorted(SUPPORTED_OPERATORS))
 
 PROMPT = (
     "Formalize each feasible hypothesis into a concrete, deterministic StrategySpec: entry rules, "
-    "exit rules, an optional ranking rule, portfolio rules, and risk rules. Use ONLY supported "
-    "features (close, volume, return_5d, return_20d, gap_1d, volume_zscore, holding_days) and "
-    "operators; never reference future-looking data. Use only OHLCV-derived features unless a "
-    "proxy is explicitly present. A proxy-based hypothesis must set backtest_readiness to "
-    "'ready_with_proxy_limitations'. Keep the economic rationale tied to the hypothesis's "
-    "mechanism."
+    "exit rules, an optional ranking rule, portfolio rules, and risk rules.\n"
+    f"Every rule MUST use ONLY these exact feature names, verbatim: {_FEATURES}.\n"
+    f"Use ONLY these operators: {_OPERATORS}.\n"
+    "NEVER invent feature names (no 'earnings date', 'actual earnings', 'null', etc.) and never "
+    "reference future-looking data. If a hypothesis needs data outside this list (earnings, "
+    "fundamentals, sentiment), use the closest OHLCV-derived PROXY — e.g. gap_1d for "
+    "earnings-gap reactions, return_5d / return_20d for momentum, volume_zscore for attention — "
+    "and set backtest_readiness to 'ready_with_proxy_limitations'. Keep the economic rationale "
+    "tied to the hypothesis's mechanism."
 )
 
 # ponytail: deterministic spec per feasible hypothesis_name; only the keys present here

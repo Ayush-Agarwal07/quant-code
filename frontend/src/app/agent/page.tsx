@@ -29,6 +29,10 @@ const SUGGESTED = [
   "Turn this idea into a structured strategy spec.",
 ];
 
+function strategySlot(index: number, strategyName: string): string {
+  return `${index}::${strategyName}`;
+}
+
 interface Reply {
   lead: string;
   requiredData: string[];
@@ -81,15 +85,16 @@ function StrategyWorkspace({
   provider: string;
 }) {
   const specs = useMemo(() => packet?.strategy_specs ?? [], [packet]);
-  const [selected, setSelected] = useState(specs[0]?.strategy_name ?? "");
+  const [selected, setSelected] = useState(specs[0] ? strategySlot(0, specs[0].strategy_name) : "");
 
   useEffect(() => {
-    if (specs.length && !specs.some((s) => s.strategy_name === selected)) {
-      setSelected(specs[0].strategy_name);
+    if (specs.length && !specs.some((s, i) => strategySlot(i, s.strategy_name) === selected)) {
+      setSelected(strategySlot(0, specs[0].strategy_name));
     }
   }, [specs, selected]);
 
-  const spec = specs.find((s) => s.strategy_name === selected) ?? specs[0] ?? null;
+  const spec =
+    specs.find((s, i) => strategySlot(i, s.strategy_name) === selected) ?? specs[0] ?? null;
   const live = provider !== "mock" && provider !== "unavailable" && provider !== "";
 
   return (
@@ -117,8 +122,8 @@ function StrategyWorkspace({
               onChange={(e) => setSelected(e.target.value)}
               className="w-full min-w-0 rounded border border-border bg-card px-3 py-2 font-mono text-[12px] text-foreground outline-none focus:border-foreground/40 sm:w-64"
             >
-              {specs.map((s) => (
-                <option key={s.strategy_name} value={s.strategy_name}>
+              {specs.map((s, index) => (
+                <option key={strategySlot(index, s.strategy_name)} value={strategySlot(index, s.strategy_name)}>
                   {s.strategy_name}
                 </option>
               ))}

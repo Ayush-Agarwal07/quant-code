@@ -12,7 +12,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from quantcode.llm.base import LLMError
 
@@ -87,6 +87,41 @@ def _to_strict_schema(node: Any) -> Any:
     return node
 
 
+def _repair_strategy_spec_payload(data: Any) -> Any:
+    if not isinstance(data, dict):
+        return data
+    rule = data.get("ranking_rule")
+    if not isinstance(rule, dict):
+        return data
+    top_n = rule.get("top_n")
+    bottom_n = rule.get("bottom_n")
+    if top_n is None or bottom_n is None:
+        return data
+
+    repaired = dict(data)
+    repaired_rule = dict(rule)
+    order = str(repaired_rule.get("order") or "").lower()
+    # Long-only consumers interpret the ranking side through order, so keep one count only.
+    if order == "ascending":
+        repaired_rule["top_n"] = None
+    else:
+        repaired_rule["bottom_n"] = None
+    repaired["ranking_rule"] = repaired_rule
+    return repaired
+
+
+def _validate_with_repairs(schema: type[BaseModel], raw: str) -> BaseModel:
+    try:
+        return schema.model_validate_json(raw)
+    except ValidationError as exc:
+        if schema.__name__ != "StrategySpec":
+            raise
+        data = _repair_strategy_spec_payload(json.loads(raw))
+        if data == json.loads(raw):
+            raise exc
+        return schema.model_validate(data)
+
+
 class OpenAICompatibleClient:
     """OpenAI-compatible chat completions with JSON-schema structured output (ported)."""
 
@@ -132,7 +167,7 @@ class OpenAICompatibleClient:
                 payload = json.loads(response.read().decode("utf-8"))
             self.last_usage = payload.get("usage") or {}
             _log_usage(self.provider_name, self.model, schema.__name__, self.last_usage)
-            return schema.model_validate_json(payload["choices"][0]["message"]["content"])
+            return _validate_with_repairs(schema, payload["choices"][0]["message"]["content"])
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")
             raise LLMError(
@@ -181,7 +216,7 @@ class OllamaClient:
                 if k in payload
             }
             _log_usage(self.provider_name, self.model, schema.__name__, self.last_usage)
-            return schema.model_validate_json(payload["message"]["content"])
+            return _validate_with_repairs(schema, payload["message"]["content"])
         except (URLError, KeyError, TypeError, ValueError) as exc:
             raise LLMError(f"ollama structured generation failed: {exc}") from exc
 
@@ -232,7 +267,12 @@ class AnthropicClient:
             _log_usage(self.provider_name, self.model, schema.__name__, self.last_usage)
             for block in msg.content:
                 if getattr(block, "type", None) == "tool_use":
-                    return schema.model_validate(block.input)
+                    try:
+                        return schema.model_validate(block.input)
+                    except ValidationError as exc:
+                        if schema.__name__ != "StrategySpec":
+                            raise exc
+                        return schema.model_validate(_repair_strategy_spec_payload(block.input))
             raise LLMError("anthropic returned no tool_use block")
         except Exception as exc:  # noqa: BLE001 — surface any SDK/validation failure as LLMError
             raise LLMError(f"anthropic structured generation failed: {exc}") from exc

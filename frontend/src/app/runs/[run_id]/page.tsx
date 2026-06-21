@@ -142,8 +142,8 @@ function RunDetail({ packet: p }: { packet: QuantResearchPacket }) {
           <Empty>No strategies proposed.</Empty>
         ) : (
           <ul className="divide-y divide-border">
-            {p.strategy_specs.map((s) => (
-              <StrategyDetail key={s.strategy_name} spec={s} />
+            {p.strategy_specs.map((s, index) => (
+              <StrategyDetail key={`${index}::${s.strategy_name}`} spec={s} />
             ))}
           </ul>
         )}
@@ -161,8 +161,8 @@ function RunDetail({ packet: p }: { packet: QuantResearchPacket }) {
           <Empty>No critiques.</Empty>
         ) : (
           <ul className="divide-y divide-border">
-            {p.critiques.map((c) => (
-              <CritiqueDetail key={c.strategy_name} critique={c} />
+            {p.critiques.map((c, index) => (
+              <CritiqueDetail key={`${index}::${c.strategy_name}`} critique={c} />
             ))}
           </ul>
         )}
