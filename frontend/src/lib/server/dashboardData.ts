@@ -207,8 +207,10 @@ export async function overview(): Promise<Overview> {
     allEpisodes(),
   ]);
   return {
-    backend: "next-local-workspace",
-    llm_provider: process.env.QC_MODEL_PROVIDER || "mock",
+    // reflect the actual memory backend the Python API runs on (redis unless forced to the
+    // in-memory fallback); the dashboard itself reads runs from the local workspace files.
+    backend: process.env.QC_MEMORY_BACKEND === "memory" ? "in-memory" : "redis",
+    llm_provider: process.env.QC_LLM_PROVIDER || "mock",
     run_ids: ids,
     run_count: ids.length,
     lesson_count: lessons.length,
