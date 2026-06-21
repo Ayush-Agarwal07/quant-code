@@ -104,6 +104,16 @@ def warmup() -> None:
 
 
 @app.command()
+def benchmarks() -> None:
+    """Run the reproducible, offline benchmarks (compaction recall/ROUGE-L + memory retrieval)
+    and print measured numbers for the pitch. Warm caches first (`quantcode warmup`) for the
+    real-embedding retrieval figure."""
+    from quantcode.benchmarks import run_all
+
+    run_all()
+
+
+@app.command()
 def research(
     objective: str,
     promote: bool = typer.Option(False, help="Promote lessons to Tier 3 (HITL approval)."),
