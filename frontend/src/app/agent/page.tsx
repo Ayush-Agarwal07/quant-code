@@ -1,15 +1,17 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowUp, Bot, Check, Loader2, Play, Send, Sparkles, User, Wand2 } from "lucide-react";
+import katex from "katex";
+import { ArrowUp, Bot, Check, Loader2, Play, Send, Sigma, Sparkles, User, Wand2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { Card, Disclaimer, Label, Pill, Prose } from "@/components/ui/primitives";
-import { LoadingState } from "@/components/ui/states";
-import { ReadinessPill } from "@/components/ui/tags";
+import { EmptyState, LoadingState } from "@/components/ui/states";
+import { CritiquePill, ReadinessPill } from "@/components/ui/tags";
 import { humanize } from "@/lib/utils";
 import { findCritique, findFeasibility } from "@/lib/research";
+import { strategyToLatex } from "@/lib/strategyLatex";
 import type {
   AgentChatReply,
   QuantResearchPacket,
@@ -52,39 +54,93 @@ export default function AgentPage() {
   const latest = useApi((s) => api.latestRun(s), []);
   const overview = useApi((s) => api.overview(s), []);
 
+  if (overview.loading) {
+    return (
+      <div className="p-6">
+        <LoadingState label="Loading research context" />
+      </div>
+    );
+  }
   return (
-    <div className="mx-auto flex h-full max-w-4xl flex-col gap-4 p-5 md:p-6">
-      <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <Label>Agent</Label>
-          <Pill tone="muted">
-            <Sparkles className="h-3 w-3" /> research chat
-          </Pill>
+    <StrategyWorkspace
+      packet={latest.error ? null : latest.data}
+      provider={overview.data?.llm_provider ?? "mock"}
+    />
+  );
+}
+
+function StrategyWorkspace({
+  packet,
+  provider,
+}: {
+  packet: QuantResearchPacket | null;
+  provider: string;
+}) {
+  const specs = useMemo(() => packet?.strategy_specs ?? [], [packet]);
+  const [selected, setSelected] = useState(specs[0]?.strategy_name ?? "");
+
+  useEffect(() => {
+    if (specs.length && !specs.some((s) => s.strategy_name === selected)) {
+      setSelected(specs[0].strategy_name);
+    }
+  }, [specs, selected]);
+
+  const spec = specs.find((s) => s.strategy_name === selected) ?? specs[0] ?? null;
+  const live = provider !== "mock" && provider !== "unavailable" && provider !== "";
+
+  return (
+    <div className="mx-auto flex h-full max-w-7xl flex-col gap-3 p-4">
+      {/* Header + strategy selector */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <Label>Strategy</Label>
+            <Pill tone={live ? "good" : "muted"}>
+              <Sparkles className="h-3 w-3" /> {live ? `live · ${provider}` : "mock"}
+            </Pill>
+          </div>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">
+            Strategy workspace
+          </h1>
         </div>
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          Strategy research chat
-        </h1>
-        <Prose className="max-w-2xl text-muted-foreground">
-          A scratchpad for shaping ideas against the latest run. Replies are grounded in existing
-          research artifacts — deterministic and offline by default; when an LLM provider is
-          configured on the backend, the same calls run through it. Nothing is written back.
-        </Prose>
+        {specs.length > 0 && (
+          <label className="flex shrink-0 flex-col gap-1">
+            <span className="font-mono text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">
+              Strategy{packet ? ` · run ${packet.run_id}` : ""}
+            </span>
+            <select
+              value={selected}
+              onChange={(e) => setSelected(e.target.value)}
+              className="w-full min-w-0 rounded border border-border bg-card px-3 py-2 font-mono text-[12px] text-foreground outline-none focus:border-foreground/40 sm:w-64"
+            >
+              {specs.map((s) => (
+                <option key={s.strategy_name} value={s.strategy_name}>
+                  {s.strategy_name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
-      {latest.loading || overview.loading ? (
-        <LoadingState label="Loading research context" />
-      ) : (
-        <Chat
-          packet={latest.error ? null : latest.data}
-          provider={overview.data?.llm_provider ?? "mock"}
-        />
-      )}
+      {/* Two panes: chat | LaTeX strategy view */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-2">
+        <Chat packet={packet} provider={provider} spec={spec} />
+        <StrategyVizPanel spec={spec} packet={packet} />
+      </div>
     </div>
   );
 }
 
-function Chat({ packet, provider }: { packet: QuantResearchPacket | null; provider: string }) {
-  const spec = packet?.strategy_specs[0] ?? null;
+function Chat({
+  packet,
+  provider,
+  spec,
+}: {
+  packet: QuantResearchPacket | null;
+  provider: string;
+  spec: StrategySpec | null;
+}) {
   const live = provider !== "mock" && provider !== "unavailable" && provider !== "";
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
@@ -174,26 +230,22 @@ function Chat({ packet, provider }: { packet: QuantResearchPacket | null; provid
   };
 
   return (
-    <>
+    <div className="flex min-h-0 flex-col gap-3">
       {/* Context chip */}
       <div className="flex flex-wrap items-center gap-2 rounded border border-border bg-card px-3 py-2">
         <span className="font-mono text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">
           Context
         </span>
-        {packet && spec ? (
+        {spec ? (
           <>
-            <Pill tone="muted">run {packet.run_id}</Pill>
             <Pill tone="muted">{spec.strategy_name}</Pill>
-            <Pill tone={live ? "good" : "muted"}>
-              {live ? `live · ${provider}` : "mock"}
-            </Pill>
             <span className="hidden text-[12px] text-muted-foreground sm:inline">
-              grounded in the latest run&apos;s first strategy
+              chat is grounded in this strategy
             </span>
           </>
         ) : (
           <span className="text-[12px] text-muted-foreground">
-            no run loaded — replies use generic research framing
+            no strategy loaded — replies use generic research framing
           </span>
         )}
       </div>
@@ -277,10 +329,102 @@ function Chat({ packet, provider }: { packet: QuantResearchPacket | null; provid
       </Card>
 
       <Disclaimer>
-        Research assistant — grounded in existing artifacts. {live ? `Live via ${provider}; ` : "Mock by default; "}
-        no run is created and no strategy is written. Not financial advice.
+        Grounded in existing artifacts. {live ? `Live via ${provider}; ` : "Mock by default; "}
+        nothing is written back. Not financial advice.
       </Disclaimer>
-    </>
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------- LaTeX strategy view */
+function Katex({ tex, display = true }: { tex: string; display?: boolean }) {
+  const html = useMemo(() => {
+    try {
+      return katex.renderToString(tex, { displayMode: display, throwOnError: false });
+    } catch {
+      return tex;
+    }
+  }, [tex, display]);
+  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+function StrategyVizPanel({
+  spec,
+  packet,
+}: {
+  spec: StrategySpec | null;
+  packet: QuantResearchPacket | null;
+}) {
+  const blocks = useMemo(() => (spec ? strategyToLatex(spec) : []), [spec]);
+  const critique = spec && packet ? findCritique(packet, spec.strategy_name) : null;
+
+  return (
+    <Card className="flex min-h-0 flex-col overflow-hidden">
+      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <Sigma className="h-3.5 w-3.5 text-muted-foreground" />
+          <Label>Formal specification</Label>
+        </div>
+        {spec && <ReadinessPill readiness={spec.backtest_readiness} />}
+      </div>
+
+      {!spec ? (
+        <div className="p-6">
+          <EmptyState title="No strategy" detail="Select a strategy to render its formal spec." />
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-[13px] font-semibold text-foreground">
+              {spec.strategy_name}
+            </span>
+            <Pill tone="muted">{humanize(spec.strategy_family)}</Pill>
+            {critique && <CritiquePill verdict={critique.verdict} />}
+          </div>
+
+          <div className="space-y-1.5">
+            <VizLabel>Hypothesis</VizLabel>
+            <Prose>{spec.hypothesis}</Prose>
+          </div>
+
+          {spec.economic_rationale && (
+            <div className="space-y-1.5">
+              <VizLabel>Economic rationale</VizLabel>
+              <Prose className="text-foreground/85">{spec.economic_rationale}</Prose>
+            </div>
+          )}
+
+          <div className="space-y-3">
+            <VizLabel>Formal definition</VizLabel>
+            <div className="space-y-3">
+              {blocks.map((b) => (
+                <div key={b.title} className="rounded border border-border bg-background p-3">
+                  <p className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    {b.title}
+                  </p>
+                  <div className="overflow-x-auto text-[13px] text-foreground">
+                    <Katex tex={b.tex} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <p className="font-mono text-[10px] leading-relaxed text-muted-foreground">
+            Rendered from the strategy DSL via KaTeX. Notation is illustrative — the executable
+            rules live in the spec and the run detail.
+          </p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function VizLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="font-mono text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">
+      {children}
+    </p>
   );
 }
 

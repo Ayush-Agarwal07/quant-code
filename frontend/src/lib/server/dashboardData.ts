@@ -12,11 +12,13 @@ import type {
   RunSummary,
   ScoredLesson,
   StrategyCatalogItem,
+  StrategySpec,
 } from "@/types";
 
 const WORKSPACE_ROOT = path.resolve(process.cwd(), "..", "workspace");
 const RUNS_DIR = path.join(WORKSPACE_ROOT, "research_runs");
 const MEMORY_DIR = path.join(WORKSPACE_ROOT, "memory");
+const STRATEGIES_DIR = path.join(WORKSPACE_ROOT, "strategies");
 
 const DISCLAIMER =
   "Research-only demo. Experiments are not executed, no strategy performance is claimed, " +
@@ -46,6 +48,96 @@ async function readJson<T>(filePath: string): Promise<T> {
   return JSON.parse(await fs.readFile(filePath, "utf8")) as T;
 }
 
+async function atomicWrite(filePath: string, data: string): Promise<void> {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  await fs.writeFile(tmp, data, "utf8");
+  await fs.rename(tmp, filePath);
+}
+
+function slug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "strategy";
+}
+
+function yamlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function yamlScalar(value: string | number | boolean | null | undefined): string {
+  if (value == null) return "null";
+  if (typeof value === "string") return yamlString(value);
+  return String(value);
+}
+
+function yamlStringList(name: string, values: string[]): string[] {
+  return values.length
+    ? [ `${name}:`, ...values.map((value) => `- ${yamlString(value)}`) ]
+    : [ `${name}: []` ];
+}
+
+function strategyYaml(spec: StrategySpec): string {
+  const lines = [
+    `strategy_name: ${yamlString(spec.strategy_name)}`,
+    `source_hypothesis: ${yamlString(spec.source_hypothesis)}`,
+    `strategy_family: ${yamlString(spec.strategy_family)}`,
+    `hypothesis: ${yamlString(spec.hypothesis)}`,
+    `economic_rationale: ${yamlString(spec.economic_rationale)}`,
+    `universe: ${yamlString(spec.universe)}`,
+    "entry_rules:",
+    ...spec.entry_rules.flatMap((rule) => [
+      `- feature: ${yamlString(rule.feature)}`,
+      `  operator: ${yamlString(rule.operator)}`,
+      `  value: ${yamlScalar(rule.value)}`,
+      `  feature_ref: ${yamlScalar(rule.feature_ref)}`,
+      `  lookback_days: ${yamlScalar(rule.lookback_days)}`,
+      `  description: ${yamlScalar(rule.description)}`,
+    ]),
+    "exit_rules:",
+    ...spec.exit_rules.flatMap((rule) => [
+      `- feature: ${yamlString(rule.feature)}`,
+      `  operator: ${yamlString(rule.operator)}`,
+      `  value: ${yamlScalar(rule.value)}`,
+      `  feature_ref: ${yamlScalar(rule.feature_ref)}`,
+      `  lookback_days: ${yamlScalar(rule.lookback_days)}`,
+      `  description: ${yamlScalar(rule.description)}`,
+    ]),
+    spec.ranking_rule
+      ? [
+          "ranking_rule:",
+          `  feature: ${yamlString(spec.ranking_rule.feature)}`,
+          `  order: ${yamlString(spec.ranking_rule.order)}`,
+          `  top_n: ${yamlScalar(spec.ranking_rule.top_n)}`,
+          `  bottom_n: ${yamlScalar(spec.ranking_rule.bottom_n)}`,
+        ].join("\n")
+      : "ranking_rule: null",
+    "portfolio_rules:",
+    `  weighting: ${yamlString(spec.portfolio_rules.weighting)}`,
+    `  max_position: ${yamlScalar(spec.portfolio_rules.max_position)}`,
+    `  max_sector_weight: ${yamlScalar(spec.portfolio_rules.max_sector_weight)}`,
+    `  rebalance_frequency: ${yamlString(spec.portfolio_rules.rebalance_frequency)}`,
+    "risk_rules:",
+    `  stop_loss: ${yamlScalar(spec.risk_rules.stop_loss)}`,
+    `  take_profit: ${yamlScalar(spec.risk_rules.take_profit)}`,
+    `  max_holding_days: ${yamlScalar(spec.risk_rules.max_holding_days)}`,
+    `  max_turnover: ${yamlScalar(spec.risk_rules.max_turnover)}`,
+    ...yamlStringList("required_data", spec.required_data),
+    ...yamlStringList("expected_failure_modes", spec.expected_failure_modes),
+    `backtest_readiness: ${yamlString(spec.backtest_readiness)}`,
+    `confidence: ${yamlScalar(spec.confidence)}`,
+    `schema_version: "1"`,
+    "",
+  ];
+  return lines.join("\n");
+}
+
+function artifactPathFor(packet: QuantResearchPacket, strategyName: string): string | null {
+  const artifact = packet.workspace_artifacts?.find(
+    (item) => item.artifact_type === "strategy_yaml" && item.description === strategyName
+  );
+  if (!artifact) return null;
+  return path.isAbsolute(artifact.path) ? artifact.path : path.resolve(process.cwd(), "..", artifact.path);
+}
+
 export async function listRunIds(): Promise<string[]> {
   const files = await jsonFiles(RUNS_DIR);
   return files.map((name) => name.replace(/\.json$/, ""));
@@ -68,6 +160,36 @@ export async function readRun(runId: string): Promise<QuantResearchPacket> {
     }
     throw error;
   }
+}
+
+export async function saveStrategy(
+  runId: string,
+  strategyName: string,
+  spec: StrategySpec
+): Promise<{ run_id: string; strategy_name: string; strategy_path: string }> {
+  if (spec.strategy_name !== strategyName) {
+    throw new DashboardDataError(400, "Renaming strategies from the dashboard is not supported");
+  }
+
+  const packet = await readRun(runId);
+  const idx = packet.strategy_specs.findIndex((item) => item.strategy_name === strategyName);
+  if (idx === -1) throw new DashboardDataError(404, `Strategy not found: ${strategyName}`);
+
+  const nextPacket: QuantResearchPacket = {
+    ...packet,
+    strategy_specs: packet.strategy_specs.map((item, i) => (i === idx ? spec : item)),
+  };
+
+  const runPath = path.join(RUNS_DIR, `${packet.run_id}.json`);
+  const strategyPath =
+    artifactPathFor(packet, strategyName) ?? path.join(STRATEGIES_DIR, `${slug(spec.strategy_name)}.yaml`);
+
+  await Promise.all([
+    atomicWrite(runPath, `${JSON.stringify(nextPacket, null, 2)}\n`),
+    atomicWrite(strategyPath, strategyYaml(spec)),
+  ]);
+
+  return { run_id: packet.run_id, strategy_name: spec.strategy_name, strategy_path: strategyPath };
 }
 
 export async function latestRunId(): Promise<string | null> {

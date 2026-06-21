@@ -1,15 +1,24 @@
-"use client";
-
 import Link from "next/link";
 import { ArrowRight, Database } from "lucide-react";
-import { api } from "@/lib/api";
-import { useApi } from "@/lib/useApi";
-import { Card, Label, Pill, Prose } from "@/components/ui/primitives";
-import { ApiDownState, EmptyState, LoadingState } from "@/components/ui/states";
+import { Card, Label, Pill } from "@/components/ui/primitives";
+import { ApiDownState, EmptyState } from "@/components/ui/states";
 import { formatRatio } from "@/lib/utils";
+import { DashboardDataError, runSummaries } from "@/lib/server/dashboardData";
+import type { RunSummary } from "@/types";
 
-export default function RunsPage() {
-  const runs = useApi((s) => api.runs(s), []);
+export default async function RunsPage() {
+  let runs: RunSummary[] | null = null;
+  let status: number | undefined;
+
+  try {
+    runs = await runSummaries();
+  } catch (error) {
+    if (error instanceof DashboardDataError) {
+      status = error.status;
+    } else {
+      throw error;
+    }
+  }
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
@@ -17,10 +26,6 @@ export default function RunsPage() {
         <div className="space-y-1">
           <Label>Runs</Label>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Research runs</h1>
-          <Prose className="max-w-2xl">
-            The audit trail. Each run is a full research packet: feasibility gate, strategies,
-            critiques, and the agent timeline. Select a run to inspect it.
-          </Prose>
         </div>
         <Link
           href="/memory"
@@ -30,11 +35,9 @@ export default function RunsPage() {
         </Link>
       </div>
 
-      {runs.loading ? (
-        <LoadingState label="Loading runs" />
-      ) : runs.error ? (
-        <ApiDownState status={runs.error.status} what="runs" />
-      ) : !runs.data || runs.data.length === 0 ? (
+      {!runs ? (
+        <ApiDownState status={status} what="runs" />
+      ) : runs.length === 0 ? (
         <EmptyState
           title="No runs yet"
           detail="Execute the pipeline to produce research packets, then they appear here."
@@ -57,7 +60,7 @@ export default function RunsPage() {
                 </tr>
               </thead>
               <tbody>
-                {[...runs.data].reverse().map((r) => (
+                {runs.map((r) => (
                   <tr
                     key={r.run_id}
                     className="group border-b border-border/60 transition-colors hover:bg-accent/30"

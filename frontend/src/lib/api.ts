@@ -1,6 +1,6 @@
-// Read-only client for the QuantCode dashboard API. All calls go through the
+// Client for the QuantCode dashboard API. Calls go through the
 // Next.js rewrite at /api/backend/* (see next.config.js), so they work from the
-// browser without CORS config. GETs only — this dashboard never mutates anything.
+// browser without CORS config. Most calls are reads; explicit WRITE methods say so.
 
 import type {
   AgentChatResponse,
@@ -14,8 +14,10 @@ import type {
   QuantResearchPacket,
   RunJob,
   RunSummary,
+  SaveStrategyResponse,
   ScoredLesson,
   StrategyCatalogItem,
+  StrategySpec,
 } from "@/types";
 
 const BASE = "/api/backend";
@@ -47,8 +49,7 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return (await res.json()) as T;
 }
 
-/** POST for the agent endpoints. The only non-GET calls — they read a packet + make one
- * grounded LLM call, but never mutate. Mock provider until QC_LLM_PROVIDER is set. */
+/** POST helper for agent/write endpoints. */
 async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
   let res: Response;
   try {
@@ -99,6 +100,11 @@ export const api = {
   /** Real keyless EOD backtest of a strategy (simulated fallback when prices unreachable). */
   backtest: (body: { run_id?: string; strategy_name?: string }, signal?: AbortSignal) =>
     post<BacktestResponse>("/agent/backtest", body, signal),
+  /** WRITE: persist an edited strategy into the run JSON + workspace strategy YAML. */
+  saveStrategy: (
+    body: { run_id: string; strategy_name: string; spec: StrategySpec },
+    signal?: AbortSignal
+  ) => post<SaveStrategyResponse>("/strategies/save", body, signal),
   /** WRITE: launch the real research pipeline in the background; returns a job to poll.
    * Under /agent/* so it doesn't collide with the Next GET route handler at /api/backend/runs. */
   createRun: (body: { objective: string; promote?: boolean }, signal?: AbortSignal) =>

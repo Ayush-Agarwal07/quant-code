@@ -10,6 +10,7 @@ __pycache__/
 dist/
 build/
 research_packet.json
+test_logs/
 
 # D6: workspace/ is generated runtime output — track only the dir skeleton + READMEs
 workspace/**

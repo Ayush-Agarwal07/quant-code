@@ -1,4 +1,4 @@
-// Typed mirrors of the QuantCode read-only dashboard API.
+// Typed mirrors of the QuantCode dashboard API.
 // Field names track quantcode/schemas/__init__.py exactly. Render only what the API returns.
 
 export type LessonKind = "warning" | "pattern" | "data_constraint" | "mutation_rule";
@@ -183,6 +183,12 @@ export interface StrategyCatalogItem {
   rationale_strength: RationaleStrength | null;
   top_risk: string | null;
   risk_count: number;
+}
+
+export interface SaveStrategyResponse {
+  run_id: string;
+  strategy_name: string;
+  strategy_path: string;
 }
 
 export interface ExperimentResultStub {
