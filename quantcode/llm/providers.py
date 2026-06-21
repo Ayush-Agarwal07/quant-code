@@ -21,6 +21,22 @@ def _send_context(context: dict[str, Any] | None) -> str:
     return json.dumps({k: v for k, v in (context or {}).items() if k != "mock"})
 
 
+def _to_strict_schema(node: Any) -> Any:
+    """Make a Pydantic JSON schema satisfy OpenAI strict structured-output rules: every object
+    sets additionalProperties:false and lists ALL properties as required (OpenAI ignores Python
+    defaults, so optional fields must still appear). `default` is stripped — strict mode rejects
+    it. Schemas using unsupported keywords (e.g. minItems from list min_length) may still fail."""
+    if isinstance(node, dict):
+        out = {k: _to_strict_schema(v) for k, v in node.items() if k != "default"}
+        if out.get("type") == "object" and "properties" in out:
+            out["additionalProperties"] = False
+            out["required"] = list(out["properties"].keys())
+        return out
+    if isinstance(node, list):
+        return [_to_strict_schema(v) for v in node]
+    return node
+
+
 class OpenAICompatibleClient:
     """OpenAI-compatible chat completions with JSON-schema structured output (ported)."""
 
@@ -47,7 +63,7 @@ class OpenAICompatibleClient:
                 "json_schema": {
                     "name": schema.__name__,
                     "strict": True,
-                    "schema": schema.model_json_schema(),
+                    "schema": _to_strict_schema(schema.model_json_schema()),
                 },
             },
         }

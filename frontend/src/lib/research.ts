@@ -4,12 +4,15 @@
 
 import { humanize } from "@/lib/utils";
 import type {
+  AlertTag,
   CandidateHypothesis,
+  CuratedReading,
   DataFeasibilityReport,
   ExperimentPlanStub,
   ExperimentResultStub,
   MarketMechanism,
   QuantResearchPacket,
+  ReadingType,
   StrategyCritique,
   StrategySpec,
   StrategyValidationReport,
@@ -228,4 +231,70 @@ export function simulatedCurve(seed: string, n = 48): { t: number; equity: numbe
     out.push({ t: i, equity: Math.round(v * 100) / 100 });
   }
   return out;
+}
+
+/** Illustrative stats computed from the simulated curve — labelled SIMULATED in the UI. */
+export function backtestStats(curve: { equity: number }[]): {
+  totalReturn: number;
+  sharpe: number;
+  maxDD: number;
+  winRate: number;
+} {
+  const v = curve.map((p) => p.equity);
+  const rets = v.slice(1).map((x, i) => x / v[i] - 1);
+  const mean = rets.reduce((a, b) => a + b, 0) / (rets.length || 1);
+  const variance = rets.reduce((a, b) => a + (b - mean) ** 2, 0) / (rets.length || 1);
+  const sd = Math.sqrt(variance) || 1e-9;
+  const sharpe = (mean / sd) * Math.sqrt(52); // weekly-ish annualization (illustrative)
+  let peak = v[0] ?? 100;
+  let maxDD = 0;
+  for (const x of v) {
+    peak = Math.max(peak, x);
+    maxDD = Math.min(maxDD, x / peak - 1);
+  }
+  return {
+    totalReturn: (v[v.length - 1] ?? 100) / (v[0] ?? 100) - 1,
+    sharpe,
+    maxDD,
+    winRate: rets.filter((r) => r > 0).length / (rets.length || 1),
+  };
+}
+
+function alertTagFor(universe: string): AlertTag {
+  const u = universe.toLowerCase();
+  if (u.includes("fx") || u.includes("currenc") || u.includes("g10")) return "FX";
+  if (u.includes("crypto") || u.includes("btc") || u.includes("coin")) return "CRYPTO";
+  if (u.includes("bond") || u.includes("rate") || u.includes("treasur")) return "RATES";
+  if (u.includes("equit") || u.includes("stock") || u.includes("share")) return "EQUITY";
+  return "MACRO";
+}
+
+/** Offline fallback for the curated-reading panel — same shape the backend returns, built
+ * from packet artifacts. Used only when the /agent/reading call fails (backend down). */
+export function derivedReading(p: QuantResearchPacket, spec: StrategySpec): CuratedReading {
+  const feed = buildResearchFeed(p, spec);
+  const items = feed.map((f) => ({
+    type: (f.type === "LESSON" ? "NOTE" : f.type) as ReadingType,
+    title: f.title,
+    source: f.source,
+    year: null,
+    summary: f.summary,
+    why: f.whyMatters,
+    url: f.sourceUrl ?? null,
+  }));
+  const alerts = [];
+  const mech = findMechanism(p, spec);
+  if (mech?.why_edge_might_disappear.length) {
+    alerts.push({
+      tag: alertTagFor(spec.universe),
+      headline: `Edge-durability: ${mech.why_edge_might_disappear[0]}.`,
+      strategy_tag: spec.strategy_name,
+    });
+  }
+  const crit = findCritique(p, spec.strategy_name);
+  const topRisk = crit && (crit.leakage_risks[0] ?? crit.major_issues[0]);
+  if (topRisk) {
+    alerts.push({ tag: "MACRO" as AlertTag, headline: topRisk, strategy_tag: spec.strategy_name });
+  }
+  return { items, alerts };
 }

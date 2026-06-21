@@ -272,6 +272,108 @@ export interface AgentTrace {
   errors: string[];
 }
 
+// --- POST /agent/chat + /agent/draft-strategy (Tier 1: one grounded LLM call, no writes).
+//     provider is "mock" until QC_LLM_PROVIDER is set on the backend. ---
+export interface AgentChatReply {
+  lead: string;
+  required_data: string[];
+  feasibility: string[];
+  risks: string[];
+  next_run: string;
+}
+
+export interface AgentChatResponse {
+  reply: AgentChatReply;
+  provider: string;
+  run_id: string;
+  strategy_name: string;
+}
+
+export interface DraftStrategyResponse {
+  spec: StrategySpec;
+  provider: string;
+  drafted: boolean;
+}
+
+// --- POST /agent/reading (curated reading + market alerts for a strategy) ---
+export type ReadingType = "PAPER" | "NEWS" | "NOTE" | "DATA";
+
+export interface ReadingItem {
+  type: ReadingType;
+  title: string;
+  source: string;
+  year?: string | null;
+  summary: string;
+  /** Why it matters for the selected strategy. */
+  why: string;
+  url?: string | null;
+}
+
+export type AlertTag = "FOMC" | "FX" | "CRYPTO" | "EQUITY" | "RATES" | "MACRO";
+
+export interface MarketAlert {
+  tag: AlertTag;
+  headline: string;
+  strategy_tag: string;
+}
+
+export interface CuratedReading {
+  items: ReadingItem[];
+  alerts: MarketAlert[];
+}
+
+export interface CuratedReadingResponse {
+  reading: CuratedReading;
+  provider: string;
+  run_id: string;
+  strategy_name: string;
+}
+
+// --- POST /agent/backtest (real keyless EOD backtest; simulated fallback) ---
+export interface BacktestPoint {
+  t: number;
+  date: string;
+  equity: number;
+}
+
+export interface BacktestResult {
+  executed: boolean; // true = real prices, false = simulated fallback
+  source: string; // 'stooq/yahoo' | 'simulated'
+  universe: string[];
+  start: string | null;
+  end: string | null;
+  rebalance: string;
+  signal: string;
+  equity: BacktestPoint[];
+  total_return: number;
+  sharpe: number;
+  max_drawdown: number;
+  win_rate: number;
+  periods: number;
+  note: string;
+}
+
+export interface BacktestResponse {
+  backtest: BacktestResult;
+  run_id: string;
+  strategy_name: string;
+}
+
+// --- POST /runs + GET /runs/jobs/{id} (the write path: launch the real pipeline) ---
+export interface CreateRunResponse {
+  job_id: string;
+  status: string;
+  provider: string;
+}
+
+export interface RunJob {
+  job_id: string;
+  status: "queued" | "running" | "done" | "error";
+  objective?: string;
+  run_id?: string | null;
+  error?: string | null;
+}
+
 export interface TraceEvent {
   run_id: string;
   step: number;

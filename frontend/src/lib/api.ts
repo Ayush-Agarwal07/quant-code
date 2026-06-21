@@ -3,10 +3,16 @@
 // browser without CORS config. GETs only — this dashboard never mutates anything.
 
 import type {
+  AgentChatResponse,
+  BacktestResponse,
   ContextPack,
+  CreateRunResponse,
+  CuratedReadingResponse,
+  DraftStrategyResponse,
   EpisodeRecord,
   Overview,
   QuantResearchPacket,
+  RunJob,
   RunSummary,
   ScoredLesson,
   StrategyCatalogItem,
@@ -41,6 +47,26 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** POST for the agent endpoints. The only non-GET calls — they read a packet + make one
+ * grounded LLM call, but never mutate. Mock provider until QC_LLM_PROVIDER is set. */
+async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch (e) {
+    throw new ApiError(0, e instanceof Error ? e.message : "network error");
+  }
+  if (!res.ok) {
+    throw new ApiError(res.status, `${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as T;
+}
+
 export const api = {
   overview: (signal?: AbortSignal) => get<Overview>("/overview", signal),
   runs: (signal?: AbortSignal) => get<RunSummary[]>("/runs", signal),
@@ -59,4 +85,24 @@ export const api = {
     return get<ScoredLesson[]>(`/memory/lessons?${params.toString()}`, signal);
   },
   episodes: (signal?: AbortSignal) => get<EpisodeRecord[]>("/memory/episodes", signal),
+  /** Grounded mock/LLM chat over a run's first (or named) strategy. Read-only. */
+  agentChat: (
+    body: { message: string; run_id?: string; strategy_name?: string },
+    signal?: AbortSignal
+  ) => post<AgentChatResponse>("/agent/chat", body, signal),
+  /** Draft (not persist) a StrategySpec from a free-text idea. Read-only. */
+  draftStrategy: (body: { idea: string; run_id?: string }, signal?: AbortSignal) =>
+    post<DraftStrategyResponse>("/agent/draft-strategy", body, signal),
+  /** Curated reading list + market alerts for a strategy (LLM when live, derived when mock). */
+  reading: (body: { run_id?: string; strategy_name?: string }, signal?: AbortSignal) =>
+    post<CuratedReadingResponse>("/agent/reading", body, signal),
+  /** Real keyless EOD backtest of a strategy (simulated fallback when prices unreachable). */
+  backtest: (body: { run_id?: string; strategy_name?: string }, signal?: AbortSignal) =>
+    post<BacktestResponse>("/agent/backtest", body, signal),
+  /** WRITE: launch the real research pipeline in the background; returns a job to poll.
+   * Under /agent/* so it doesn't collide with the Next GET route handler at /api/backend/runs. */
+  createRun: (body: { objective: string; promote?: boolean }, signal?: AbortSignal) =>
+    post<CreateRunResponse>("/agent/run", body, signal),
+  runJob: (jobId: string, signal?: AbortSignal) =>
+    get<RunJob>(`/agent/run/${encodeURIComponent(jobId)}`, signal),
 };

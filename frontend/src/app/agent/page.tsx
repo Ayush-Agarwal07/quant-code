@@ -1,14 +1,21 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { ArrowUp, Bot, Send, Sparkles, User, Wand2 } from "lucide-react";
+import { useRef, useState } from "react";
+import Link from "next/link";
+import { ArrowUp, Bot, Check, Loader2, Play, Send, Sparkles, User, Wand2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { Card, Disclaimer, Label, Pill, Prose } from "@/components/ui/primitives";
 import { LoadingState } from "@/components/ui/states";
+import { ReadinessPill } from "@/components/ui/tags";
 import { humanize } from "@/lib/utils";
 import { findCritique, findFeasibility } from "@/lib/research";
-import type { QuantResearchPacket, StrategySpec } from "@/types";
+import type {
+  AgentChatReply,
+  QuantResearchPacket,
+  StrategyRule,
+  StrategySpec,
+} from "@/types";
 
 const SUGGESTED = [
   "Brainstorm short-horizon underreaction strategies.",
@@ -25,12 +32,25 @@ interface Reply {
   nextRun: string;
 }
 
+function fromApi(r: AgentChatReply): Reply {
+  return {
+    lead: r.lead,
+    requiredData: r.required_data,
+    feasibility: r.feasibility,
+    risks: r.risks,
+    nextRun: r.next_run,
+  };
+}
+
 type Message =
   | { id: number; role: "user"; text: string }
-  | { id: number; role: "assistant"; reply: Reply };
+  | { id: number; role: "assistant"; pending: true }
+  | { id: number; role: "assistant"; reply: Reply; provider: string }
+  | { id: number; role: "assistant"; spec: StrategySpec; provider: string };
 
 export default function AgentPage() {
   const latest = useApi((s) => api.latestRun(s), []);
+  const overview = useApi((s) => api.overview(s), []);
 
   return (
     <div className="mx-auto flex h-full max-w-4xl flex-col gap-4 p-5 md:p-6">
@@ -38,45 +58,119 @@ export default function AgentPage() {
         <div className="flex items-center gap-2">
           <Label>Agent</Label>
           <Pill tone="muted">
-            <Sparkles className="h-3 w-3" /> mock
+            <Sparkles className="h-3 w-3" /> research chat
           </Pill>
         </div>
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
           Strategy research chat
         </h1>
         <Prose className="max-w-2xl text-muted-foreground">
-          A scratchpad for shaping ideas against the latest run. Responses are deterministic and
-          generated locally from existing research artifacts — no LLM is called and nothing is
-          written back.
+          A scratchpad for shaping ideas against the latest run. Replies are grounded in existing
+          research artifacts — deterministic and offline by default; when an LLM provider is
+          configured on the backend, the same calls run through it. Nothing is written back.
         </Prose>
       </div>
 
-      {latest.loading ? (
+      {latest.loading || overview.loading ? (
         <LoadingState label="Loading research context" />
       ) : (
-        <Chat packet={latest.error ? null : latest.data} />
+        <Chat
+          packet={latest.error ? null : latest.data}
+          provider={overview.data?.llm_provider ?? "mock"}
+        />
       )}
     </div>
   );
 }
 
-function Chat({ packet }: { packet: QuantResearchPacket | null }) {
+function Chat({ packet, provider }: { packet: QuantResearchPacket | null; provider: string }) {
   const spec = packet?.strategy_specs[0] ?? null;
+  const live = provider !== "mock" && provider !== "unavailable" && provider !== "";
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
   const idRef = useRef(0);
+  const lastUserRef = useRef("");
 
-  const send = (raw: string) => {
+  const replacePending = (id: number, msg: Message) =>
+    setMessages((m) => m.map((x) => (x.id === id ? msg : x)));
+
+  const send = async (raw: string) => {
     const text = raw.trim();
-    if (!text) return;
-    const userMsg: Message = { id: idRef.current++, role: "user", text };
-    const reply: Message = {
-      id: idRef.current++,
-      role: "assistant",
-      reply: mockReply(text, packet, spec),
-    };
-    setMessages((m) => [...m, userMsg, reply]);
+    if (!text || busy) return;
+    lastUserRef.current = text;
+    const userId = idRef.current++;
+    const replyId = idRef.current++;
+    setMessages((m) => [
+      ...m,
+      { id: userId, role: "user", text },
+      { id: replyId, role: "assistant", pending: true },
+    ]);
     setDraft("");
+
+    // Mock provider: stay fully offline — deterministic local reply, no network.
+    if (!live) {
+      replacePending(replyId, {
+        id: replyId,
+        role: "assistant",
+        reply: mockReply(text, packet, spec),
+        provider: "mock",
+      });
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await api.agentChat({
+        message: text,
+        run_id: packet?.run_id,
+        strategy_name: spec?.strategy_name,
+      });
+      replacePending(replyId, {
+        id: replyId,
+        role: "assistant",
+        reply: fromApi(res.reply),
+        provider: res.provider,
+      });
+    } catch {
+      // Backend down / LLM error → fall back to the deterministic local reply.
+      replacePending(replyId, {
+        id: replyId,
+        role: "assistant",
+        reply: mockReply(text, packet, spec),
+        provider: "offline mock",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const draftStrategy = async () => {
+    if (!live || busy) return;
+    const idea = lastUserRef.current || draft.trim();
+    if (!idea) return;
+    const id = idRef.current++;
+    setMessages((m) => [...m, { id, role: "assistant", pending: true }]);
+    setBusy(true);
+    try {
+      const res = await api.draftStrategy({ idea, run_id: packet?.run_id });
+      replacePending(id, { id, role: "assistant", spec: res.spec, provider: res.provider });
+    } catch {
+      replacePending(id, {
+        id,
+        role: "assistant",
+        reply: {
+          lead: "Couldn't draft a valid spec from that idea — try describing the signal and horizon more concretely.",
+          requiredData: [],
+          feasibility: [],
+          risks: [],
+          nextRun: "—",
+        },
+        provider: "error",
+      });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -90,7 +184,10 @@ function Chat({ packet }: { packet: QuantResearchPacket | null }) {
           <>
             <Pill tone="muted">run {packet.run_id}</Pill>
             <Pill tone="muted">{spec.strategy_name}</Pill>
-            <span className="text-[12px] text-muted-foreground">
+            <Pill tone={live ? "good" : "muted"}>
+              {live ? `live · ${provider}` : "mock"}
+            </Pill>
+            <span className="hidden text-[12px] text-muted-foreground sm:inline">
               grounded in the latest run&apos;s first strategy
             </span>
           </>
@@ -114,8 +211,9 @@ function Chat({ packet }: { packet: QuantResearchPacket | null }) {
                   <button
                     key={s}
                     type="button"
+                    disabled={busy}
                     onClick={() => send(s)}
-                    className="flex items-center gap-2 rounded border border-border bg-background px-3 py-2.5 text-left text-[12.5px] text-foreground/85 transition-colors hover:border-foreground/30 hover:text-foreground"
+                    className="flex items-center gap-2 rounded border border-border bg-background px-3 py-2.5 text-left text-[12.5px] text-foreground/85 transition-colors hover:border-foreground/30 hover:text-foreground disabled:opacity-50"
                   >
                     <ArrowUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     {s}
@@ -127,8 +225,18 @@ function Chat({ packet }: { packet: QuantResearchPacket | null }) {
             messages.map((m) =>
               m.role === "user" ? (
                 <UserBubble key={m.id} text={m.text} />
+              ) : "pending" in m ? (
+                <PendingBubble key={m.id} live={live} />
+              ) : "spec" in m ? (
+                <DraftedSpecBubble key={m.id} spec={m.spec} provider={m.provider} />
               ) : (
-                <AssistantBubble key={m.id} reply={m.reply} />
+                <AssistantBubble
+                  key={m.id}
+                  reply={m.reply}
+                  provider={m.provider}
+                  canDraft={live && !busy}
+                  onDraft={draftStrategy}
+                />
               )
             )
           )}
@@ -158,18 +266,19 @@ function Chat({ packet }: { packet: QuantResearchPacket | null }) {
             />
             <button
               type="submit"
-              disabled={!draft.trim()}
+              disabled={!draft.trim() || busy}
               className="flex h-10 items-center gap-1.5 rounded border border-border bg-foreground/[0.06] px-3 font-mono text-[11px] uppercase tracking-widest text-foreground transition-colors hover:bg-foreground/10 disabled:opacity-40"
             >
-              <Send className="h-3.5 w-3.5" /> Send
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              Send
             </button>
           </form>
         </div>
       </Card>
 
       <Disclaimer>
-        Mock agent — deterministic local responses derived from existing artifacts. No model is
-        called, no run is created, no strategy is written. Not financial advice.
+        Research assistant — grounded in existing artifacts. {live ? `Live via ${provider}; ` : "Mock by default; "}
+        no run is created and no strategy is written. Not financial advice.
       </Disclaimer>
     </>
   );
@@ -188,29 +297,136 @@ function UserBubble({ text }: { text: string }) {
   );
 }
 
-function AssistantBubble({ reply }: { reply: Reply }) {
+function BotAvatar() {
+  return (
+    <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border bg-foreground/[0.06] text-foreground">
+      <Bot className="h-3.5 w-3.5" />
+    </span>
+  );
+}
+
+function PendingBubble({ live }: { live: boolean }) {
   return (
     <div className="flex gap-2">
-      <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border bg-foreground/[0.06] text-foreground">
-        <Bot className="h-3.5 w-3.5" />
-      </span>
+      <BotAvatar />
+      <div className="flex items-center gap-2 pt-1.5 font-mono text-[11px] text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        {live ? "calling model…" : "thinking…"}
+      </div>
+    </div>
+  );
+}
+
+function ProviderTag({ provider }: { provider: string }) {
+  const live = provider !== "mock" && provider !== "offline mock" && provider !== "error";
+  return <Pill tone={live ? "good" : "muted"}>{provider}</Pill>;
+}
+
+function AssistantBubble({
+  reply,
+  provider,
+  canDraft,
+  onDraft,
+}: {
+  reply: Reply;
+  provider: string;
+  canDraft: boolean;
+  onDraft: () => void;
+}) {
+  return (
+    <div className="flex gap-2">
+      <BotAvatar />
       <div className="min-w-0 flex-1 space-y-3">
+        <div className="flex items-center gap-2">
+          <ProviderTag provider={provider} />
+        </div>
         <Prose>{reply.lead}</Prose>
         <ReplySection title="Required data" items={reply.requiredData} />
         <ReplySection title="Feasibility concerns" items={reply.feasibility} />
         <ReplySection title="Risks" items={reply.risks} />
-        <div className="space-y-1">
-          <ReplyLabel>Suggested next run</ReplyLabel>
-          <p className="rounded border border-border bg-background px-3 py-2 font-mono text-[11.5px] text-foreground/90">
-            {reply.nextRun}
-          </p>
-        </div>
-        {/* Affordances — intentionally not wired */}
+        {reply.nextRun !== "—" && (
+          <div className="space-y-1">
+            <ReplyLabel>Suggested next run</ReplyLabel>
+            <p className="break-words rounded border border-border bg-background px-3 py-2 font-mono text-[11.5px] text-foreground/90">
+              {reply.nextRun}
+            </p>
+          </div>
+        )}
+        {/* Affordances */}
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          <DisabledAction icon={<Send className="h-3 w-3" />} label="Send to run" />
-          <DisabledAction icon={<Wand2 className="h-3 w-3" />} label="Draft strategy" />
-          <span className="font-mono text-[10px] text-muted-foreground">not wired yet</span>
+          {reply.nextRun !== "—" && <RunTrigger objective={objectiveFrom(reply.nextRun)} />}
+          {canDraft ? (
+            <button
+              type="button"
+              onClick={onDraft}
+              className="inline-flex items-center gap-1.5 rounded border border-border bg-foreground/[0.06] px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest text-foreground transition-colors hover:bg-foreground/10"
+            >
+              <Wand2 className="h-3 w-3" /> Draft strategy
+            </button>
+          ) : (
+            <DisabledAction icon={<Wand2 className="h-3 w-3" />} label="Draft strategy" />
+          )}
+          {!canDraft && (
+            <span className="font-mono text-[10px] text-muted-foreground">
+              draft needs a live provider
+            </span>
+          )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function DraftedSpecBubble({ spec, provider }: { spec: StrategySpec; provider: string }) {
+  return (
+    <div className="flex gap-2">
+      <BotAvatar />
+      <div className="min-w-0 flex-1 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <ProviderTag provider={provider} />
+          <Pill tone="warn">drafted · not saved</Pill>
+        </div>
+        <div className="space-y-3 rounded border border-border bg-background p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-[13px] font-semibold text-foreground">
+              {spec.strategy_name}
+            </span>
+            <Pill tone="muted">{humanize(spec.strategy_family)}</Pill>
+            <ReadinessPill readiness={spec.backtest_readiness} />
+          </div>
+          <Prose>{spec.hypothesis}</Prose>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <SpecRules title="Entry rules" rules={spec.entry_rules} />
+            <SpecRules title="Exit rules" rules={spec.exit_rules} />
+          </div>
+          {spec.required_data.length > 0 && (
+            <p className="font-mono text-[10px] text-muted-foreground">
+              data: {spec.required_data.join(", ")} · universe: {spec.universe}
+            </p>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <RunTrigger objective={`Test "${spec.strategy_name}": ${spec.hypothesis}`} />
+          <span className="font-mono text-[10px] text-muted-foreground">
+            draft not saved — Send to run launches a fresh pipeline
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SpecRules({ title, rules }: { title: string; rules: StrategyRule[] }) {
+  return (
+    <div className="rounded border border-border bg-card p-2.5">
+      <ReplyLabel>{title}</ReplyLabel>
+      <div className="mt-1.5 space-y-1">
+        {rules.map((r, i) => (
+          <p key={i} className="break-words font-mono text-[11px] text-foreground">
+            {r.feature} {r.operator} {r.feature_ref ?? r.value ?? ""}
+            {r.lookback_days ? ` (${r.lookback_days}d)` : ""}
+          </p>
+        ))}
       </div>
     </div>
   );
@@ -241,12 +457,108 @@ function ReplyLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+function objectiveFrom(nextRun: string): string {
+  const m = nextRun.match(/objective:\s*"([^"]+)"/i);
+  return m ? m[1] : nextRun;
+}
+
+/** Launches the REAL pipeline (write path). Two-step to avoid accidental token spend, then
+ * polls the job to completion. ponytail: recursive poll, no unmount guard — a stale setState
+ * after unmount is a harmless no-op. */
+function RunTrigger({ objective }: { objective: string }) {
+  const [phase, setPhase] = useState<"idle" | "confirm" | "running" | "done" | "error">("idle");
+  const [runId, setRunId] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const launch = async () => {
+    setPhase("running");
+    setErr(null);
+    try {
+      const { job_id } = await api.createRun({ objective });
+      for (let n = 0; n < 150; n++) {
+        const job = await api.runJob(job_id);
+        if (job.status === "done") {
+          setRunId(job.run_id ?? null);
+          setPhase("done");
+          return;
+        }
+        if (job.status === "error") {
+          setErr(job.error ?? "pipeline failed");
+          setPhase("error");
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      setErr("timed out after ~5 min");
+      setPhase("error");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "request failed");
+      setPhase("error");
+    }
+  };
+
+  if (phase === "done") {
+    return (
+      <Link
+        href={runId ? `/runs/${runId}` : "/runs"}
+        className="inline-flex items-center gap-1.5 rounded border border-foreground/40 bg-foreground/[0.06] px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest text-foreground transition-colors hover:bg-foreground/10"
+      >
+        <Check className="h-3 w-3" /> {runId ?? "run"} — open
+      </Link>
+    );
+  }
+  if (phase === "running") {
+    return (
+      <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" /> launching pipeline…
+      </span>
+    );
+  }
+  if (phase === "error") {
+    return (
+      <span className="inline-flex items-center gap-2 font-mono text-[10px] text-destructive">
+        run failed: {err}
+        <button type="button" onClick={() => setPhase("idle")} className="underline">
+          retry
+        </button>
+      </span>
+    );
+  }
+  if (phase === "confirm") {
+    return (
+      <span className="inline-flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        launch full pipeline?
+        <button
+          type="button"
+          onClick={launch}
+          className="rounded border border-foreground/40 bg-foreground/[0.06] px-2 py-0.5 text-foreground hover:bg-foreground/10"
+        >
+          confirm
+        </button>
+        <button type="button" onClick={() => setPhase("idle")} className="underline">
+          cancel
+        </button>
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => setPhase("confirm")}
+      title="Launches the real research pipeline (writes a new run). With a live provider this makes ~9 model calls."
+      className="inline-flex items-center gap-1.5 rounded border border-border bg-foreground/[0.06] px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest text-foreground transition-colors hover:bg-foreground/10"
+    >
+      <Play className="h-3 w-3" /> Send to run
+    </button>
+  );
+}
+
 function DisabledAction({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
     <button
       type="button"
       disabled
-      title="Not wired yet — this mock agent never mutates research artifacts."
+      title="Not wired yet — running the pipeline from the dashboard is a separate (write) feature."
       className="inline-flex cursor-not-allowed items-center gap-1.5 rounded border border-dashed border-border px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground opacity-60"
     >
       {icon}
@@ -256,8 +568,8 @@ function DisabledAction({ icon, label }: { icon: React.ReactNode; label: string 
 }
 
 // --------------------------------------------------------------------------- //
-// Deterministic mock responder. Keyed off message intent + the latest packet so
-// replies feel connected to QuantCode without any model call.
+// Deterministic offline responder — used in mock mode and as the fallback when
+// the backend is unreachable. Mirrors the backend's _chat_fixture intent.
 // --------------------------------------------------------------------------- //
 function mockReply(
   message: string,
