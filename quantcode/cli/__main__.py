@@ -31,13 +31,20 @@ assert compact.exit_code == 0, compact.output
 search = runner.invoke(app, ["memory", "search", "underreaction"])
 assert search.exit_code == 0, search.output
 
-learn = runner.invoke(app, ["check", "runs/latest", "--learn"], input="stop\nn\n")
+# one strategy (2 prompts: next-action + promote) + no network -> deterministic offline check
+learn = runner.invoke(
+    app,
+    ["check", "runs/latest", "-s", "short_horizon_momentum",
+     "--learn", "--papers", "0", "--news", "0"],
+    input="stop\nn\n",
+)
 assert learn.exit_code == 0, learn.output
 assert "Backtest-derived lessons" in learn.output, learn.output
 
 iterate = runner.invoke(
     app,
-    ["iterate", "runs/latest", "--strategy", "short_horizon_momentum"],
+    ["iterate", "runs/latest", "--strategy", "short_horizon_momentum",
+     "--papers", "0", "--news", "0"],
     input="y\nn\n",
 )
 assert iterate.exit_code == 0, iterate.output

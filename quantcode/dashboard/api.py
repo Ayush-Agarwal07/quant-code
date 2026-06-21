@@ -180,7 +180,7 @@ class CommandRequest(BaseModel):
     reset: bool = False
 
 
-def _alert_tag(universe: str) -> str:
+def _alert_tag(universe: str) -> Literal["FX", "CRYPTO", "RATES", "EQUITY", "MACRO"]:
     u = universe.lower()
     if "fx" in u or "currenc" in u or "g10" in u:
         return "FX"
@@ -284,7 +284,7 @@ def _whys_prompt(items: list[ReadingItem], spec: StrategySpec) -> str:
 def _alerts_from_news(news: list[dict[str, Any]], spec: StrategySpec) -> list[MarketAlert]:
     tag = _alert_tag(spec.universe)
     return [
-        MarketAlert(tag=tag, headline=n["title"], strategy_tag=spec.strategy_name)  # type: ignore[arg-type]
+        MarketAlert(tag=tag, headline=n["title"], strategy_tag=spec.strategy_name)
         for n in news
     ]
 
@@ -297,7 +297,7 @@ def derived_alerts(p: QuantResearchPacket, spec: StrategySpec) -> list[MarketAle
     if mech and mech.why_edge_might_disappear:
         alerts.append(
             MarketAlert(
-                tag=tag,  # type: ignore[arg-type]
+                tag=tag,
                 headline=f"Edge-durability: {mech.why_edge_might_disappear[0]}.",
                 strategy_tag=spec.strategy_name,
             )
@@ -482,6 +482,8 @@ def _paper_trade_result(
     from quantcode.dashboard.backtest import build_paper_plan
 
     plan = build_paper_plan(spec)
+    if not plan.picks:
+        raise HTTPException(422, f"no live paper picks for {spec.strategy_name}")
     state = None if reset else wm.read_paper_state(spec.strategy_name)
     cash = float(state["cash"]) if state else starting_cash
     positions = {k: float(v) for k, v in (state["positions"] if state else {}).items()}

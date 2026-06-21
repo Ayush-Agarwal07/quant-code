@@ -34,6 +34,8 @@ def _clean(text: str | None) -> str:
 
 def arxiv_papers(query: str, limit: int = 3) -> list[dict[str, Any]]:
     """Real q-fin papers from the arXiv Atom API. Returns title/source/year/summary/url."""
+    if limit <= 0:  # skip the network entirely (offline self-checks, "no papers" requests)
+        return []
     q = urllib.parse.quote(f"cat:q-fin* AND all:{query}")
     url = (
         f"http://export.arxiv.org/api/query?search_query={q}"
@@ -70,6 +72,8 @@ def arxiv_papers(query: str, limit: int = 3) -> list[dict[str, Any]]:
 
 def google_news(query: str, limit: int = 3) -> list[dict[str, Any]]:
     """Real recent headlines from Google News RSS (keyless). title/source/url/date."""
+    if limit <= 0:  # skip the network entirely (offline self-checks, "no news" requests)
+        return []
     q = urllib.parse.quote(f"{query} when:21d")
     url = f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
     raw = _get(url)
