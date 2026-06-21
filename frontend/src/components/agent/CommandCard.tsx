@@ -64,12 +64,15 @@ export function CommandCard({
   const [phase, setPhase] = useState<"idle" | "confirm" | "running" | "done" | "error">("idle");
   const [job, setJob] = useState<AgentCommandJob | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [objective, setObjective] = useState(request.objective ?? "");
+  const isStrategy = request.command === "strategy";
 
   const launch = async () => {
     setPhase("running");
     setError(null);
     try {
-      const { job_id } = await api.command(request);
+      const payload = isStrategy ? { ...request, objective: objective.trim() || request.objective } : request;
+      const { job_id } = await api.command(payload);
       for (let n = 0; n < 180; n++) {
         const next = await api.commandJob(job_id);
         setJob(next);
@@ -103,6 +106,16 @@ export function CommandCard({
         </span>
       </div>
       <p className="mt-1 text-[12.5px] leading-relaxed text-foreground/85">{detail}</p>
+
+      {isStrategy && (phase === "idle" || phase === "confirm") && (
+        <textarea
+          value={objective}
+          onChange={(e) => setObjective(e.target.value)}
+          rows={2}
+          placeholder="Research objective… (leave blank for the default)"
+          className="mt-2 w-full resize-none rounded border border-border bg-background px-2 py-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-foreground/40"
+        />
+      )}
 
       {phase === "idle" && (
         <button

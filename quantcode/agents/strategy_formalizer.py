@@ -8,6 +8,7 @@ operators) so StrategyValidatorTool passes it; no leakage features anywhere.
 from __future__ import annotations
 
 from quantcode.agents.base import Agent
+from quantcode.llm import LLMError
 from quantcode.schemas import CandidateHypothesis, StrategySpec
 from quantcode.tools.feature_catalog import SUPPORTED_OPERATORS, FeatureCatalog
 
@@ -21,6 +22,9 @@ PROMPT = (
     "exit rules, an optional ranking rule, portfolio rules, and risk rules.\n"
     f"Every rule MUST use ONLY these exact feature names, verbatim: {_FEATURES}.\n"
     f"Use ONLY these operators: {_OPERATORS}.\n"
+    "Every entry and exit rule MUST be fully concrete: include a NUMERIC `value` for the "
+    "comparison (e.g. 0.0, 0.03, 1.5, 30) — never null, never a phrase like 'a predefined "
+    "level'. (Alternatively set `feature_ref` to another feature name to compare two features.)\n"
     "NEVER invent feature names (no 'earnings date', 'actual earnings', 'null', etc.) and never "
     "reference future-looking data. If a hypothesis needs data outside this list (earnings, "
     "fundamentals, sentiment), use the closest OHLCV-derived PROXY — e.g. gap_1d for "
@@ -124,7 +128,11 @@ class StrategyFormalizerAgent(Agent):
             ctx = {"hypothesis": hyp.model_dump(mode="json")}
             if fixture is not None:
                 ctx["mock"] = fixture
-            out = self.llm.generate_structured(PROMPT, StrategySpec, ctx)
+            try:
+                out = self.llm.generate_structured(PROMPT, StrategySpec, ctx)
+            except LLMError as exc:  # one malformed spec must not sink the whole run
+                print(f"[formalizer] skipped {hyp.hypothesis_name!r}: {exc}")
+                continue
             assert isinstance(out, StrategySpec)
             specs.append(out)
         return specs
