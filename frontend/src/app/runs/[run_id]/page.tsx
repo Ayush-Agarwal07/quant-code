@@ -1,9 +1,21 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, FlaskConical } from "lucide-react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { api } from "@/lib/api";
+import { formatDate, formatInt, humanize } from "@/lib/utils";
 import { useApi } from "@/lib/useApi";
 import {
   Card,
@@ -31,6 +43,8 @@ import type {
   QuantResearchPacket,
   RankingRule,
   RiskRules,
+  BacktestResult,
+  BacktestTrade,
   StrategyCritique,
   StrategyRule,
   StrategySpec,
@@ -69,6 +83,10 @@ function ruleText(r: StrategyRule): string {
 
 function RunDetail({ packet: p }: { packet: QuantResearchPacket }) {
   const events = [...p.trace_events].sort((a, b) => a.step - b.step);
+  const [selectedStrategy, setSelectedStrategy] = useState(p.strategy_specs[0]?.strategy_name ?? "");
+  const [backtest, setBacktest] = useState<BacktestResult | null>(null);
+  const [backtestLoading, setBacktestLoading] = useState(false);
+  const [backtestError, setBacktestError] = useState<string | null>(null);
 
   const accepted = p.critiques.filter((c) => c.verdict === "accept_for_backtest").length;
   const revise = p.critiques.filter((c) => c.verdict === "revise_before_backtest").length;
@@ -77,6 +95,46 @@ function RunDetail({ packet: p }: { packet: QuantResearchPacket }) {
     ADVANCING_VERDICTS.has(r.verdict)
   ).length;
   const deferred = p.data_feasibility_reports.length - advanced;
+  const selectedSpec =
+    p.strategy_specs.find((s) => s.strategy_name === selectedStrategy) ?? p.strategy_specs[0] ?? null;
+  const selectedCritique =
+    p.critiques.find((c) => c.strategy_name === selectedSpec?.strategy_name) ?? null;
+
+  useEffect(() => {
+    if (!p.strategy_specs.length) {
+      setSelectedStrategy("");
+      return;
+    }
+    setSelectedStrategy((current) =>
+      p.strategy_specs.some((spec) => spec.strategy_name === current)
+        ? current
+        : p.strategy_specs[0].strategy_name
+    );
+  }, [p.strategy_specs]);
+
+  useEffect(() => {
+    if (!selectedSpec) {
+      setBacktest(null);
+      return;
+    }
+    const controller = new AbortController();
+    setBacktestLoading(true);
+    setBacktestError(null);
+    api
+      .backtest({ run_id: p.run_id, strategy_name: selectedSpec.strategy_name }, controller.signal)
+      .then((res) => {
+        if (!controller.signal.aborted) setBacktest(res.backtest);
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        setBacktest(null);
+        setBacktestError(err instanceof Error ? err.message : "backtest failed");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setBacktestLoading(false);
+      });
+    return () => controller.abort();
+  }, [p.run_id, selectedSpec]);
 
   return (
     <div className="space-y-8">
@@ -110,6 +168,20 @@ function RunDetail({ packet: p }: { packet: QuantResearchPacket }) {
         <SummaryStat label="Advanced" value={advanced} sub="passed feasibility" />
         <SummaryStat label="Deferred" value={deferred} sub="missing data" />
       </div>
+
+      {selectedSpec && (
+        <BacktestReport
+          runId={p.run_id}
+          strategy={selectedSpec}
+          strategies={p.strategy_specs}
+          selectedStrategy={selectedStrategy}
+          onSelectStrategy={setSelectedStrategy}
+          critique={selectedCritique}
+          result={backtest}
+          loading={backtestLoading}
+          error={backtestError}
+        />
+      )}
 
       {/* Feasibility gate — why deferred is the centerpiece */}
       <Card className="overflow-hidden">
@@ -249,7 +321,7 @@ function RunDetail({ packet: p }: { packet: QuantResearchPacket }) {
       </Card>
 
       <Disclaimer>
-        Research only — experiments are not_executed; no performance is claimed.
+        Research only — this page may include an on-demand backtest preview, but nothing here is a live trading system or financial advice.
       </Disclaimer>
     </div>
   );
@@ -262,7 +334,7 @@ function SummaryStat({
   tone,
 }: {
   label: string;
-  value: number;
+  value: React.ReactNode;
   sub?: string;
   tone?: "good" | "warn" | "bad";
 }) {
@@ -586,4 +658,326 @@ function LessonColumn({
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <p className="p-6 text-[12px] text-muted-foreground">{children}</p>;
+}
+
+type ReportPoint = {
+  x: number;
+  label: string;
+  equity: number;
+  pnl: number;
+};
+
+function BacktestReport({
+  runId,
+  strategy,
+  strategies,
+  selectedStrategy,
+  onSelectStrategy,
+  critique,
+  result,
+  loading,
+  error,
+}: {
+  runId: string;
+  strategy: StrategySpec;
+  strategies: StrategySpec[];
+  selectedStrategy: string;
+  onSelectStrategy: (value: string) => void;
+  critique: StrategyCritique | null;
+  result: BacktestResult | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  const curve = useMemo(() => buildReportCurve(result), [result]);
+  const stats = useMemo(() => summarizeBacktest(result, curve), [result, curve]);
+  const recentTrades = result?.trades?.slice(-14).reverse() ?? [];
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="border-b border-border p-5">
+        <SectionHeader
+          title="Run report"
+          hint="PnL over the last two years, executed rebalance activity, and a plain-English read on the strategy."
+          right={
+            <label className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              Strategy
+              <select
+                value={selectedStrategy}
+                onChange={(e) => onSelectStrategy(e.target.value)}
+                className="rounded border border-border bg-background px-2 py-1 font-mono text-[11px] uppercase tracking-widest text-foreground outline-none transition-colors hover:bg-accent"
+              >
+                {strategies.map((spec) => (
+                  <option key={spec.strategy_name} value={spec.strategy_name}>
+                    {spec.strategy_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          }
+        />
+      </div>
+
+      {loading ? (
+        <div className="p-6">
+          <LoadingState label="Loading two-year performance" />
+        </div>
+      ) : error || !result ? (
+        <Empty>{error ?? `No backtest available for ${runId}.`}</Empty>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px]">
+            <section className="border-b border-border lg:border-b-0 lg:border-r">
+              <div className="space-y-4 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Label>PnL Curve</Label>
+                    <Pill tone="muted">{humanize(strategy.strategy_name)}</Pill>
+                    <Pill tone={result.executed ? "good" : "warn"}>{result.source}</Pill>
+                  </div>
+                  <div className="font-mono text-[11px] text-muted-foreground">
+                    {stats.startLabel} - {stats.endLabel}
+                  </div>
+                </div>
+
+                <div className="h-[420px] w-full">
+                  <ReportChart data={curve} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-px overflow-hidden rounded border border-border bg-border md:grid-cols-3 xl:grid-cols-6">
+                  <SummaryStat label="Earnings" value={stats.earningsLabel} tone={stats.totalReturn >= 0 ? "good" : "bad"} />
+                  <SummaryStat label="Total return" value={stats.totalReturnLabel} tone={stats.totalReturn >= 0 ? "good" : "bad"} />
+                  <SummaryStat label="Annual return" value={stats.annualReturnLabel} tone={stats.annualReturn >= 0 ? "good" : "bad"} />
+                  <SummaryStat label="Max drawdown" value={stats.maxDrawdownLabel} tone="bad" />
+                  <SummaryStat label="Sharpe" value={stats.sharpeLabel} tone={stats.sharpe >= 0.75 ? "good" : stats.sharpe >= 0.25 ? "warn" : "bad"} />
+                  <SummaryStat label="Trades" value={stats.tradeCountLabel} sub={`win ${stats.winRateLabel}`} />
+                </div>
+
+                <Prose className="text-[12px] text-muted-foreground">{result.note}</Prose>
+              </div>
+            </section>
+
+            <aside className="min-h-0">
+              <div className="border-b border-border px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <Label>Executed trades</Label>
+                  <Pill tone="muted">{result.rebalance}</Pill>
+                </div>
+              </div>
+              <div className="grid grid-cols-[1fr_0.8fr_0.9fr_1fr_1fr] border-b border-border px-4 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <span>Time</span>
+                <span>Rule</span>
+                <span>Ticker</span>
+                <span className="text-right">Size</span>
+                <span className="text-right">Price</span>
+              </div>
+              {recentTrades.length === 0 ? (
+                <Empty>No trades were emitted for this backtest window.</Empty>
+              ) : (
+                <div className="max-h-[620px] overflow-y-auto">
+                  {recentTrades.map((trade, index) => (
+                    <TradeRow key={`${trade.date}-${trade.side}-${trade.ticker}-${index}`} trade={trade} />
+                  ))}
+                </div>
+              )}
+            </aside>
+          </div>
+
+          <div className="border-t border-border p-5">
+            <div className="grid gap-5 lg:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Performance</Label>
+                <Prose>{performanceSummary(strategy, result, stats)}</Prose>
+              </div>
+              <div className="space-y-2">
+                <Label>Improvements / Shortcomings</Label>
+                <Prose>{improvementSummary(strategy, critique, result)}</Prose>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function ReportChart({ data }: { data: ReportPoint[] }) {
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <AreaChart data={data} margin={{ top: 12, right: 18, bottom: 12, left: 0 }}>
+        <defs>
+          <linearGradient id="runReportPnlFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="rgb(34 197 94)" stopOpacity={0.28} />
+            <stop offset="55%" stopColor="rgb(34 197 94)" stopOpacity={0.08} />
+            <stop offset="100%" stopColor="rgb(34 197 94)" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid stroke="hsl(0 0% 12%)" />
+        <XAxis
+          dataKey="x"
+          type="number"
+          domain={[0, Math.max(0, data.length - 1)]}
+          ticks={chartTicks(data)}
+          tick={{ fontSize: 11, fill: "hsl(0 0% 62%)", fontFamily: "var(--font-mono)" }}
+          tickLine={false}
+          axisLine={false}
+          tickFormatter={(v) => data[Math.round(Number(v))]?.label ?? ""}
+        />
+        <YAxis
+          orientation="right"
+          width={68}
+          tick={{ fontSize: 11, fill: "hsl(0 0% 72%)", fontFamily: "var(--font-mono)" }}
+          tickLine={false}
+          axisLine={false}
+          tickFormatter={(v) => `${Number(v).toFixed(2)}%`}
+        />
+        <ReferenceLine y={0} stroke="hsl(0 0% 24%)" />
+        <Tooltip
+          cursor={{ stroke: "hsl(0 0% 32%)" }}
+          contentStyle={{
+            background: "hsl(0 0% 6%)",
+            border: "1px solid hsl(0 0% 14%)",
+            borderRadius: 4,
+            fontSize: 11,
+            fontFamily: "var(--font-mono)",
+          }}
+          labelFormatter={(_, payload) =>
+            payload && payload[0]
+              ? String((payload[0] as { payload?: { label?: string } }).payload?.label ?? "")
+              : ""
+          }
+          formatter={(v) => `${Number(v).toFixed(2)}%`}
+        />
+        <Area
+          type="stepAfter"
+          dataKey="pnl"
+          stroke="rgb(34 197 94)"
+          strokeWidth={2}
+          fill="url(#runReportPnlFill)"
+          isAnimationActive={false}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+function TradeRow({ trade }: { trade: BacktestTrade }) {
+  const tone = trade.side === "BUY" ? "text-emerald-400" : "text-red-400";
+  return (
+    <div className="grid grid-cols-[1fr_0.8fr_0.9fr_1fr_1fr] items-center border-b border-border px-4 py-3 font-mono text-[12px]">
+      <span className="text-muted-foreground">{formatDate(trade.date)}</span>
+      <span className={`font-semibold ${tone}`}>{trade.side}</span>
+      <span className="text-foreground">{trade.ticker}</span>
+      <span className="text-right text-muted-foreground">{trade.shares.toFixed(4)}</span>
+      <span className="text-right font-semibold text-foreground">{trade.price.toFixed(2)}</span>
+    </div>
+  );
+}
+
+function buildReportCurve(result: BacktestResult | null): ReportPoint[] {
+  const points = result?.equity ?? [];
+  const trimmed = lastTwoYears(points);
+  const first = trimmed[0]?.equity ?? 100;
+  return trimmed.map((point, index) => ({
+    x: index,
+    label: labelDate(point.date),
+    equity: point.equity,
+    pnl: first ? (point.equity / first - 1) * 100 : 0,
+  }));
+}
+
+function lastTwoYears(points: BacktestResult["equity"]): BacktestResult["equity"] {
+  if (points.length < 2) return points;
+  const lastTs = Date.parse(points[points.length - 1].date);
+  if (Number.isNaN(lastTs)) return points;
+  const cutoff = lastTs - 730 * 24 * 60 * 60 * 1000;
+  const filtered = points.filter((point) => {
+    const ts = Date.parse(point.date);
+    return !Number.isNaN(ts) && ts >= cutoff;
+  });
+  return filtered.length > 1 ? filtered : points;
+}
+
+function chartTicks(data: ReportPoint[]): number[] {
+  if (data.length <= 1) return [0];
+  const count = Math.min(6, data.length);
+  const last = data.length - 1;
+  return Array.from({ length: count }, (_, i) => Math.round((last * i) / Math.max(1, count - 1)));
+}
+
+function labelDate(value: string): string {
+  const ts = Date.parse(value);
+  if (Number.isNaN(ts)) return value;
+  return new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+}
+
+function pct(value: number, digits = 2): string {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${(value * 100).toFixed(digits)}%`;
+}
+
+function summarizeBacktest(result: BacktestResult | null, curve: ReportPoint[]) {
+  const totalReturn = result?.total_return ?? 0;
+  const start = result?.start ?? result?.equity[0]?.date ?? null;
+  const end = result?.end ?? result?.equity[result.equity.length - 1]?.date ?? null;
+  const startTs = start ? Date.parse(start) : Number.NaN;
+  const endTs = end ? Date.parse(end) : Number.NaN;
+  const years =
+    !Number.isNaN(startTs) && !Number.isNaN(endTs) && endTs > startTs
+      ? (endTs - startTs) / (365.25 * 24 * 60 * 60 * 1000)
+      : 2;
+  const first = curve[0]?.equity ?? 100;
+  const last = curve[curve.length - 1]?.equity ?? first;
+  const annualReturn = years > 0 && first > 0 ? Math.pow(last / first, 1 / years) - 1 : 0;
+  return {
+    totalReturn,
+    annualReturn,
+    sharpe: result?.sharpe ?? 0,
+    earningsLabel: `$${formatInt(Math.round(totalReturn * 100000))}`,
+    totalReturnLabel: pct(totalReturn),
+    annualReturnLabel: pct(annualReturn),
+    maxDrawdownLabel: pct(result?.max_drawdown ?? 0),
+    winRateLabel: pct(result?.win_rate ?? 0),
+    sharpeLabel: (result?.sharpe ?? 0).toFixed(2),
+    tradeCountLabel: formatInt(result?.trades?.length ?? 0),
+    startLabel: formatDate(start),
+    endLabel: formatDate(end),
+  };
+}
+
+function performanceSummary(
+  strategy: StrategySpec,
+  result: BacktestResult,
+  stats: ReturnType<typeof summarizeBacktest>
+): string {
+  const base = `${humanize(strategy.strategy_name)} returned ${stats.totalReturnLabel} over the displayed two-year window, with an annualized pace of ${stats.annualReturnLabel}, a Sharpe of ${stats.sharpeLabel}, and a max drawdown of ${stats.maxDrawdownLabel}.`;
+  const execution = result.executed
+    ? ` The curve comes from the live EOD cross-sectional backtest across ${result.universe.length} names with ${result.rebalance} rebalancing.`
+    : " The curve is still on the fallback preview path, so use it as directional context rather than evidence of an edge.";
+  const win = ` Win rate landed at ${stats.winRateLabel} across ${stats.tradeCountLabel} recorded trade events.`;
+  return `${base}${execution}${win}`;
+}
+
+function improvementSummary(
+  strategy: StrategySpec,
+  critique: StrategyCritique | null,
+  result: BacktestResult
+): string {
+  const flagged = critique
+    ? [
+        ...critique.major_issues,
+        ...critique.leakage_risks,
+        ...critique.transaction_cost_risks,
+        ...critique.data_quality_risks,
+      ]
+    : strategy.expected_failure_modes;
+  const top = flagged.slice(0, 3);
+  const risks = top.length > 0 ? top.join("; ") : "no specific issues were flagged in the critique";
+  const mutations = critique?.suggested_mutations?.slice(0, 2) ?? [];
+  const next = mutations.length > 0
+    ? ` Next iterations should ${mutations.join(" and ").toLowerCase()}.`
+    : " Next iterations should tighten the signal definition, verify every input is point-in-time clean, and pressure-test the rebalance cadence.";
+  const proxy = strategy.backtest_readiness === "ready_with_proxy_limitations"
+    ? " Because this strategy is proxy-based, the largest improvement would be replacing the proxy with the direct event data feed it stands in for."
+    : "";
+  return `Current shortcomings are ${risks}. ${result.note}${next}${proxy}`;
 }

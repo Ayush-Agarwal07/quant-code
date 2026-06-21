@@ -343,6 +343,14 @@ export interface BacktestPoint {
   equity: number;
 }
 
+export interface BacktestTrade {
+  date: string;
+  side: string;
+  ticker: string;
+  shares: number;
+  price: number;
+}
+
 export interface BacktestResult {
   executed: boolean; // true = real prices, false = simulated fallback
   source: string; // 'stooq/yahoo' | 'simulated'
@@ -352,6 +360,7 @@ export interface BacktestResult {
   rebalance: string;
   signal: string;
   equity: BacktestPoint[];
+  trades: BacktestTrade[];
   total_return: number;
   sharpe: number;
   max_drawdown: number;

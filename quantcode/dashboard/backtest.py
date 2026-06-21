@@ -46,6 +46,14 @@ class EquityPoint(BaseModel):
     equity: float
 
 
+class BacktestTrade(BaseModel):
+    date: str
+    side: str
+    ticker: str
+    shares: float
+    price: float
+
+
 class BacktestResult(BaseModel):
     executed: bool  # True = real prices; False = simulated fallback
     source: str  # 'stooq' | 'yahoo' | 'simulated'
@@ -55,6 +63,7 @@ class BacktestResult(BaseModel):
     rebalance: str
     signal: str
     equity: list[EquityPoint]
+    trades: list[BacktestTrade]
     total_return: float
     sharpe: float
     max_drawdown: float
@@ -265,6 +274,7 @@ def run_backtest(spec: StrategySpec) -> BacktestResult:
     step = data["step"]
 
     equity = [EquityPoint(t=0, date=dates[0], equity=100.0)]
+    trades: list[BacktestTrade] = []
     rets: list[float] = []
     v = 100.0
     start_i = 60  # warm-up for lookbacks
@@ -279,6 +289,33 @@ def run_backtest(spec: StrategySpec) -> BacktestResult:
             continue
         ranked.sort(reverse=descending)
         picks = [tk for _, tk in ranked[: max(1, top_n)]]
+        entered = [tk for tk in picks if tk not in prev_picks]
+        exited = [tk for tk in prev_picks if tk not in picks]
+        book_value = max(v * 1000, 1.0)
+        for tk in exited:
+            price = closes[tk][i]
+            shares = round(book_value / max(1, len(prev_picks)) / price, 4) if price else 0.0
+            trades.append(
+                BacktestTrade(
+                    date=dates[i],
+                    side="SELL",
+                    ticker=tk,
+                    shares=shares,
+                    price=round(price, 2),
+                )
+            )
+        for tk in entered:
+            price = closes[tk][i]
+            shares = round(book_value / max(1, len(picks)) / price, 4) if price else 0.0
+            trades.append(
+                BacktestTrade(
+                    date=dates[i],
+                    side="BUY",
+                    ticker=tk,
+                    shares=shares,
+                    price=round(price, 2),
+                )
+            )
         fwd = [closes[tk][i + step] / closes[tk][i] - 1 for tk in picks if closes[tk][i]]
         if not fwd:
             continue
@@ -303,6 +340,7 @@ def run_backtest(spec: StrategySpec) -> BacktestResult:
             + (" (proxy: return_20d)" if data["proxied"] else "")
         ),
         equity=equity,
+        trades=trades,
         note=data["note"],
         **_stats(rets, equity, step),
     )
