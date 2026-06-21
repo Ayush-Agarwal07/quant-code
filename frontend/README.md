@@ -23,6 +23,15 @@ Next.js 14 (App Router) · React 18 · TypeScript (strict) · Tailwind CSS 3.4 �
 
 ## Running it
 
+From the repo root, the simplest path is:
+
+```bash
+.venv/bin/quantcode gui
+```
+
+That starts the FastAPI backend and the Next.js frontend together, and points the frontend at
+the live Python API via `NEXT_PUBLIC_API_URL`.
+
 ```bash
 cd frontend
 npm install

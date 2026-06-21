@@ -4,6 +4,9 @@
 
 import type {
   AgentChatResponse,
+  AgentCommandCreateResponse,
+  AgentCommandJob,
+  AgentCommandRequest,
   BacktestResponse,
   ContextPack,
   CreateRunResponse,
@@ -111,4 +114,8 @@ export const api = {
     post<CreateRunResponse>("/agent/run", body, signal),
   runJob: (jobId: string, signal?: AbortSignal) =>
     get<RunJob>(`/agent/run/${encodeURIComponent(jobId)}`, signal),
+  command: (body: AgentCommandRequest, signal?: AbortSignal) =>
+    post<AgentCommandCreateResponse>("/agent/command", body, signal),
+  commandJob: (jobId: string, signal?: AbortSignal) =>
+    get<AgentCommandJob>(`/agent/command/${encodeURIComponent(jobId)}`, signal),
 };

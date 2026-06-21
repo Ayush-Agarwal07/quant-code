@@ -380,6 +380,103 @@ export interface RunJob {
   error?: string | null;
 }
 
+export type AgentCommandKind = "strategy" | "check" | "iterate" | "live";
+
+export interface StrategyAdjustments {
+  max_holding_days?: number | null;
+  rebalance_frequency?: "daily" | "weekly" | "monthly" | null;
+}
+
+export interface AgentCommandRequest {
+  command: AgentCommandKind;
+  objective?: string;
+  run_id?: string;
+  strategy_name?: string;
+  promote?: boolean;
+  papers?: number;
+  news?: number;
+  adjustments?: StrategyAdjustments;
+  starting_cash?: number;
+  reset?: boolean;
+}
+
+export interface PaperSignal {
+  ticker: string;
+  price: number;
+  signal_value: number;
+  weight: number;
+}
+
+export interface PaperTradePlan {
+  executed: boolean;
+  source: string;
+  as_of: string | null;
+  rebalance: string;
+  signal: string;
+  picks: PaperSignal[];
+  note: string;
+}
+
+export interface PaperOrder {
+  side: "BUY" | "SELL";
+  ticker: string;
+  shares: number;
+  price: number;
+  notional: number;
+}
+
+export interface PaperPortfolioState {
+  run_id: string;
+  strategy_name: string;
+  cash: number;
+  equity: number;
+  source: string;
+  signal: string;
+  state_path: string;
+  history: Array<{ as_of: string | null; equity: number }>;
+}
+
+export interface PaperTradeResult {
+  plan: PaperTradePlan;
+  orders: PaperOrder[];
+  portfolio: PaperPortfolioState;
+}
+
+export interface AgentCommandResult {
+  command: AgentCommandKind;
+  objective?: string;
+  run_id?: string;
+  strategy_name?: string;
+  strategy_count?: number;
+  strategies?: StrategySpec[];
+  summary?: RunSummary;
+  backtest?: BacktestResult;
+  papers?: ReadingItem[];
+  news?: ReadingItem[];
+  lessons?: Lesson[];
+  ascii_pnl?: string;
+  adjusted_spec?: StrategySpec | null;
+  promoted_lessons?: number;
+  paper_trade?: PaperTradeResult;
+}
+
+export interface AgentCommandCreateResponse {
+  job_id: string;
+  status: "queued";
+  command: AgentCommandKind;
+  provider: string;
+}
+
+export interface AgentCommandJob {
+  job_id: string;
+  status: "queued" | "running" | "done" | "error";
+  command: AgentCommandKind;
+  run_id?: string | null;
+  strategy_name?: string | null;
+  error?: string | null;
+  result?: AgentCommandResult | null;
+}
+
 export interface TraceEvent {
   run_id: string;
   step: number;

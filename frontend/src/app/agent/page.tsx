@@ -9,11 +9,14 @@ import { useApi } from "@/lib/useApi";
 import { Card, Disclaimer, Label, Pill, Prose } from "@/components/ui/primitives";
 import { EmptyState, LoadingState } from "@/components/ui/states";
 import { CritiquePill, ReadinessPill } from "@/components/ui/tags";
+import { CommandCard } from "@/components/agent/CommandCard";
+import { commandPresets, inferCommand } from "@/lib/commandIntent";
 import { humanize } from "@/lib/utils";
 import { findCritique, findFeasibility } from "@/lib/research";
 import { strategyToLatex } from "@/lib/strategyLatex";
 import type {
   AgentChatReply,
+  AgentCommandRequest,
   QuantResearchPacket,
   StrategyRule,
   StrategySpec,
@@ -48,7 +51,8 @@ type Message =
   | { id: number; role: "user"; text: string }
   | { id: number; role: "assistant"; pending: true }
   | { id: number; role: "assistant"; reply: Reply; provider: string }
-  | { id: number; role: "assistant"; spec: StrategySpec; provider: string };
+  | { id: number; role: "assistant"; spec: StrategySpec; provider: string }
+  | { id: number; role: "assistant"; command: { title: string; detail: string; request: AgentCommandRequest } };
 
 export default function AgentPage() {
   const latest = useApi((s) => api.latestRun(s), []);
@@ -151,6 +155,11 @@ function Chat({
   const replacePending = (id: number, msg: Message) =>
     setMessages((m) => m.map((x) => (x.id === id ? msg : x)));
 
+  const proposeCommand = (title: string, detail: string, request: AgentCommandRequest) => {
+    const id = idRef.current++;
+    setMessages((m) => [...m, { id, role: "assistant", command: { title, detail, request } }]);
+  };
+
   const send = async (raw: string) => {
     const text = raw.trim();
     if (!text || busy) return;
@@ -163,6 +172,12 @@ function Chat({
       { id: replyId, role: "assistant", pending: true },
     ]);
     setDraft("");
+
+    const inferred = inferCommand(text, { runId: packet?.run_id, strategy: spec });
+    if (inferred) {
+      replacePending(replyId, { id: replyId, role: "assistant", command: inferred });
+      return;
+    }
 
     // Mock provider: stay fully offline — deterministic local reply, no network.
     if (!live) {
@@ -250,6 +265,22 @@ function Chat({
         )}
       </div>
 
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+        {commandPresets({ runId: packet?.run_id, strategy: spec }).map((preset) => (
+          <button
+            key={`${preset.title}-${preset.request.command}`}
+            type="button"
+            onClick={() => proposeCommand(preset.title, preset.detail, preset.request)}
+            className="rounded border border-border bg-card px-3 py-2 text-left transition-colors hover:border-foreground/30"
+          >
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-foreground">
+              {preset.title}
+            </p>
+            <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{preset.detail}</p>
+          </button>
+        ))}
+      </div>
+
       {/* Transcript */}
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
@@ -281,6 +312,8 @@ function Chat({
                 <PendingBubble key={m.id} live={live} />
               ) : "spec" in m ? (
                 <DraftedSpecBubble key={m.id} spec={m.spec} provider={m.provider} />
+              ) : "command" in m ? (
+                <CommandBubble key={m.id} title={m.command.title} detail={m.command.detail} request={m.command.request} />
               ) : (
                 <AssistantBubble
                   key={m.id}
@@ -332,6 +365,25 @@ function Chat({
         Grounded in existing artifacts. {live ? `Live via ${provider}; ` : "Mock by default; "}
         nothing is written back. Not financial advice.
       </Disclaimer>
+    </div>
+  );
+}
+
+function CommandBubble({
+  title,
+  detail,
+  request,
+}: {
+  title: string;
+  detail: string;
+  request: AgentCommandRequest;
+}) {
+  return (
+    <div className="flex gap-2">
+      <BotAvatar />
+      <div className="min-w-0 flex-1">
+        <CommandCard request={request} title={title} detail={detail} runLabel="Launch" />
+      </div>
     </div>
   );
 }
@@ -618,9 +670,9 @@ function RunTrigger({ objective }: { objective: string }) {
     setPhase("running");
     setErr(null);
     try {
-      const { job_id } = await api.createRun({ objective });
+      const { job_id } = await api.command({ command: "strategy", objective });
       for (let n = 0; n < 150; n++) {
-        const job = await api.runJob(job_id);
+        const job = await api.commandJob(job_id);
         if (job.status === "done") {
           setRunId(job.run_id ?? null);
           setPhase("done");
@@ -692,7 +744,7 @@ function RunTrigger({ objective }: { objective: string }) {
       title="Launches the real research pipeline (writes a new run). With a live provider this makes ~9 model calls."
       className="inline-flex items-center gap-1.5 rounded border border-border bg-foreground/[0.06] px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest text-foreground transition-colors hover:bg-foreground/10"
     >
-      <Play className="h-3 w-3" /> Send to run
+      <Play className="h-3 w-3" /> Run strategy
     </button>
   );
 }

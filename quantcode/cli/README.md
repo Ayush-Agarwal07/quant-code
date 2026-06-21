@@ -16,6 +16,7 @@ Core commands:
 - `check [run_id] [--strategy NAME] [--learn]` — backtest strategy specs, fetch papers/news, and optionally derive backtest lessons.
 - `iterate [run_id] --strategy NAME` — one explicit human-approved re-test round, optionally after parameter edits.
 - `live [run_id] --paper --strategy NAME` — generate and persist a local paper portfolio from the latest EOD signal snapshot.
+- `gui` — launch the FastAPI backend and Next.js frontend together for the local dashboard.
 - `research "<objective>"` — run the full pipeline; write run + report.
 - `demo` — canned end-to-end run for judges.
 - `inspect runs/latest` — print a run's artifacts.
@@ -36,6 +37,7 @@ quantcode check
 quantcode check --learn
 quantcode iterate run_025 --strategy "Post-Earnings Announcement Drift Momentum"
 quantcode check run_025 --strategy "Post-Earnings Announcement Drift Momentum"
+quantcode gui
 ```
 
 `strategy` is the terminal-first alias for creating strategies from an objective. `check`

@@ -4,8 +4,14 @@ render with rich. NO business logic here (it belongs in pipeline/)."""
 from __future__ import annotations
 
 import re
+import os
 import shutil
+import subprocess
+import sys
+import time
+import webbrowser
 from pathlib import Path
+from typing import Optional
 
 import typer
 from rich.console import Console
@@ -23,6 +29,8 @@ app = typer.Typer(help="QuantCode — Claude Code for systematic strategy resear
 console = Console()
 
 ADVANCING = {"testable_now", "testable_with_proxy"}
+REPO_ROOT = Path(__file__).resolve().parents[2]
+FRONTEND_DIR = REPO_ROOT / "frontend"
 DEFAULT_STRATEGY_OBJECTIVE = (
     "Find short-horizon underreaction strategies in US liquid equities using only OHLCV "
     "and earnings calendar data"
@@ -42,6 +50,18 @@ def _resolve_run(wm: WorkspaceManager, target: str) -> Path:
         console.print(f"[red]No such run: {run_id}[/red]")
         raise typer.Exit(1)
     return path
+
+
+def _stop_process(proc: subprocess.Popen[bytes] | None, name: str) -> None:
+    if proc is None or proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        console.print(f"[yellow]{name} did not exit cleanly; killing.[/yellow]")
+        proc.kill()
+        proc.wait(timeout=5)
 
 
 def _print_packet(p: QuantResearchPacket) -> None:
@@ -526,7 +546,7 @@ def strategy(
 @app.command()
 def check(
     target: str = typer.Argument("runs/latest", help="Run id, runs/latest, or latest."),
-    strategy_name: str | None = typer.Option(None, "--strategy", "-s", help="Check one strategy."),
+    strategy_name: Optional[str] = typer.Option(None, "--strategy", "-s", help="Check one strategy."),
     papers: int = typer.Option(3, help="Number of arXiv papers to fetch per strategy."),
     news: int = typer.Option(4, help="Number of Google News items to fetch per strategy."),
     learn: bool = typer.Option(False, "--learn", help="Derive lessons and offer one approved re-test round."),
@@ -564,7 +584,7 @@ def iterate(
 def live(
     target: str = typer.Argument("runs/latest", help="Run id, runs/latest, or latest."),
     paper: bool = typer.Option(False, "--paper", help="Paper-trading only."),
-    strategy_name: str | None = typer.Option(None, "--strategy", "-s", help="Paper-trade one strategy."),
+    strategy_name: Optional[str] = typer.Option(None, "--strategy", "-s", help="Paper-trade one strategy."),
     starting_cash: float = typer.Option(100000.0, help="Starting paper cash for a new book."),
     reset: bool = typer.Option(False, help="Reset the saved paper portfolio for this strategy."),
 ) -> None:
@@ -578,6 +598,87 @@ def live(
         console.print("[yellow]No strategy specs available to paper-trade.[/yellow]")
         raise typer.Exit(1)
     _run_paper_live(packet, specs[0], starting_cash=starting_cash, reset=reset)
+
+
+@app.command()
+def gui(
+    api_host: str = typer.Option("127.0.0.1", help="Host for the FastAPI backend."),
+    api_port: int = typer.Option(8000, help="Port for the FastAPI backend."),
+    frontend_host: str = typer.Option("127.0.0.1", help="Host for the Next.js frontend."),
+    frontend_port: int = typer.Option(3000, help="Port for the Next.js frontend."),
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the dashboard in a browser."),
+) -> None:
+    """Launch the FastAPI backend and the Next.js frontend together for local GUI use."""
+    npm = shutil.which("npm")
+    if npm is None:
+        console.print("[red]npm not found. Install Node.js/npm to launch the frontend.[/red]")
+        raise typer.Exit(1)
+    if not FRONTEND_DIR.exists():
+        console.print(f"[red]frontend dir not found:[/red] {FRONTEND_DIR}")
+        raise typer.Exit(1)
+    if not (FRONTEND_DIR / "package.json").exists():
+        console.print(f"[red]frontend/package.json not found:[/red] {FRONTEND_DIR / 'package.json'}")
+        raise typer.Exit(1)
+
+    backend_cmd = [
+        sys.executable,
+        "-c",
+        (
+            "from quantcode.dashboard.api import serve;"
+            f"serve(host={api_host!r}, port={api_port})"
+        ),
+    ]
+    frontend_cmd = [
+        npm,
+        "run",
+        "dev",
+        "--",
+        "--hostname",
+        frontend_host,
+        "--port",
+        str(frontend_port),
+    ]
+    backend_env = os.environ.copy()
+    frontend_env = os.environ.copy()
+    frontend_env["NEXT_PUBLIC_API_URL"] = f"http://{api_host}:{api_port}"
+
+    backend_proc: subprocess.Popen[bytes] | None = None
+    frontend_proc: subprocess.Popen[bytes] | None = None
+    try:
+        console.print(
+            f"[dim]starting backend:[/dim] http://{api_host}:{api_port}  "
+            f"[dim]frontend:[/dim] http://{frontend_host}:{frontend_port}"
+        )
+        backend_proc = subprocess.Popen(backend_cmd, cwd=str(REPO_ROOT), env=backend_env)
+        time.sleep(1.0)
+        if backend_proc.poll() is not None:
+            raise typer.Exit(backend_proc.returncode or 1)
+
+        frontend_proc = subprocess.Popen(frontend_cmd, cwd=str(FRONTEND_DIR), env=frontend_env)
+        time.sleep(1.0)
+        if frontend_proc.poll() is not None:
+            raise typer.Exit(frontend_proc.returncode or 1)
+
+        console.print(
+            f"[green]GUI running.[/green] Open [bold]http://{frontend_host}:{frontend_port}[/bold]"
+        )
+        console.print("[dim]Ctrl-C stops both processes.[/dim]")
+        if open_browser:
+            webbrowser.open(f"http://{frontend_host}:{frontend_port}")
+
+        while True:
+            if backend_proc.poll() is not None:
+                console.print("[red]backend exited unexpectedly.[/red]")
+                raise typer.Exit(backend_proc.returncode or 1)
+            if frontend_proc.poll() is not None:
+                console.print("[red]frontend exited unexpectedly.[/red]")
+                raise typer.Exit(frontend_proc.returncode or 1)
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]stopping GUI...[/yellow]")
+    finally:
+        _stop_process(frontend_proc, "frontend")
+        _stop_process(backend_proc, "backend")
 
 
 @app.command()

@@ -67,6 +67,7 @@ changes behavior. The panel prints `memory backend: memory` (offline fallback).
 .venv/bin/quantcode check
 .venv/bin/quantcode check --learn
 .venv/bin/quantcode live runs/latest --paper --strategy short_horizon_momentum
+.venv/bin/quantcode gui
 ```
 
 `strategy` runs the full research pipeline and writes strategy YAML + run artifacts.
@@ -96,6 +97,7 @@ QuantCode is meant to be usable from the terminal end to end. The high-level flo
 | `quantcode check [run_id] [--learn]` | Backtest strategy specs from a run, pull relevant arXiv papers + Google News, and optionally derive backtest lessons. Defaults to `runs/latest`. |
 | `quantcode iterate [run_id] --strategy NAME` | Run one explicit human-approved backtest iteration for a strategy, optionally after parameter edits. |
 | `quantcode live [run_id] --paper --strategy NAME` | Build and persist a local paper portfolio from the latest EOD signal snapshot for one strategy. |
+| `quantcode gui` | Launch the FastAPI backend and the Next.js frontend together for the local dashboard. |
 | `quantcode research "<objective>"` | Lower-level pipeline command used by `strategy`; writes the same run artifacts. |
 | `quantcode inspect [runs/latest]` | Print a compact summary of a saved run. |
 | `quantcode compact [runs/latest] --budget 1000` | Re-run the ResearchTrace Compiler over a run trace at a token budget. |
@@ -131,6 +133,9 @@ Useful examples:
 
 # Generate paper orders and persist a local paper book.
 .venv/bin/quantcode live runs/latest --paper --strategy short_horizon_momentum
+
+# Launch the GUI (FastAPI + Next.js) together.
+.venv/bin/quantcode gui
 
 # Inspect and compact saved artifacts.
 .venv/bin/quantcode inspect runs/latest

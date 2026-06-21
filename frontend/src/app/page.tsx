@@ -42,9 +42,11 @@ import {
 } from "recharts";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
+import { CommandCard } from "@/components/agent/CommandCard";
 import { Card, Label, Pill, Prose } from "@/components/ui/primitives";
 import { ApiDownState, EmptyState, LoadingState } from "@/components/ui/states";
 import { CritiquePill, ReadinessPill, TraceStatusPill, VerdictPill } from "@/components/ui/tags";
+import { commandPresets, inferCommand } from "@/lib/commandIntent";
 import { humanize } from "@/lib/utils";
 import {
   backtestStats,
@@ -56,6 +58,7 @@ import {
 import { strategyToLatex } from "@/lib/strategyLatex";
 import type {
   AgentChatReply,
+  AgentCommandRequest,
   AgentTrace,
   BacktestResult,
   CuratedReading,
@@ -314,7 +317,8 @@ function fromApi(r: AgentChatReply): Reply {
 type Message =
   | { id: number; role: "user"; text: string }
   | { id: number; role: "assistant"; pending: true }
-  | { id: number; role: "assistant"; reply: Reply; provider: string };
+  | { id: number; role: "assistant"; reply: Reply; provider: string }
+  | { id: number; role: "assistant"; command: { title: string; detail: string; request: AgentCommandRequest } };
 
 function ChatColumn({
   packet,
@@ -365,6 +369,11 @@ function ChatPanel({
   const replacePending = (id: number, msg: Message) =>
     setMessages((m) => m.map((x) => (x.id === id ? msg : x)));
 
+  const proposeCommand = (title: string, detail: string, request: AgentCommandRequest) => {
+    const id = idRef.current++;
+    setMessages((m) => [...m, { id, role: "assistant", command: { title, detail, request } }]);
+  };
+
   const send = async (raw: string) => {
     const text = raw.trim();
     if (!text || busy) return;
@@ -376,6 +385,13 @@ function ChatPanel({
       { id: replyId, role: "assistant", pending: true },
     ]);
     setDraft("");
+
+    const inferred = inferCommand(text, { runId: packet.run_id, strategy: spec });
+    if (inferred) {
+      replacePending(replyId, { id: replyId, role: "assistant", command: inferred });
+      return;
+    }
+
     setBusy(true);
     try {
       const res = await api.agentChat({
@@ -422,6 +438,21 @@ function ChatPanel({
           <Pill tone={provider === "mock" ? "muted" : "good"}>{provider}</Pill>
         </div>
       </div>
+      <div className="grid grid-cols-2 gap-2 border-b border-border px-4 py-3 lg:grid-cols-4">
+        {commandPresets({ runId: packet.run_id, strategy: spec }).map((preset) => (
+          <button
+            key={`${preset.title}-${preset.request.command}`}
+            type="button"
+            onClick={() => proposeCommand(preset.title, preset.detail, preset.request)}
+            className="rounded border border-border bg-background px-3 py-2 text-left transition-colors hover:border-foreground/30"
+          >
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-foreground">
+              {preset.title}
+            </p>
+            <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{preset.detail}</p>
+          </button>
+        ))}
+      </div>
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
         {messages.length === 0 ? (
           <div className="space-y-3">
@@ -449,6 +480,8 @@ function ChatPanel({
               <UserBubble key={m.id} text={m.text} />
             ) : "pending" in m ? (
               <PendingBubble key={m.id} />
+            ) : "command" in m ? (
+              <CommandBubble key={m.id} title={m.command.title} detail={m.command.detail} request={m.command.request} />
             ) : (
               <AssistantBubble key={m.id} reply={m.reply} provider={m.provider} />
             )
@@ -479,6 +512,25 @@ function ChatPanel({
         </button>
       </form>
     </Panel>
+  );
+}
+
+function CommandBubble({
+  title,
+  detail,
+  request,
+}: {
+  title: string;
+  detail: string;
+  request: AgentCommandRequest;
+}) {
+  return (
+    <div className="flex gap-2">
+      <BotAvatar />
+      <div className="min-w-0 flex-1">
+        <CommandCard request={request} title={title} detail={detail} runLabel="Launch" />
+      </div>
+    </div>
   );
 }
 
