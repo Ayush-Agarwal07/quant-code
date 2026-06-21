@@ -93,7 +93,12 @@ weak = Lesson(
 )
 res = mem.curator.curate([weak], run_id="run_002", approved=True)
 assert not res.promoted, "low-confidence lesson must not reach Tier 3"
+assert res.dropped == [weak], "low-confidence lesson must be accounted for as dropped"
 assert mem.semantic.read_lesson("weak") is None, "low-signal lesson must NOT be written"
+
+promote_only = mem.curator.promote([weak], approved=True)
+assert promote_only["dropped"] == [weak], "direct promote must account for low-signal drops"
+assert promote_only["promoted"] == [], "direct promote must not write low-signal lessons"
 
 print("memory OK — tier1 trace, tier2 episode, tier3 vector search, HITL-gated promotion "
       f"(backend={mem.backend_name})")

@@ -13,9 +13,11 @@ from quantcode.schemas import CandidateHypothesis, StrategySpec
 PROMPT = (
     "Formalize each feasible hypothesis into a concrete, deterministic StrategySpec: entry rules, "
     "exit rules, an optional ranking rule, portfolio rules, and risk rules. Use ONLY supported "
-    "features and operators; never reference future-looking data. A proxy-based hypothesis must "
-    "set backtest_readiness to 'ready_with_proxy_limitations'. Keep the economic rationale tied to "
-    "the hypothesis's mechanism."
+    "features (close, volume, return_5d, return_20d, gap_1d, volume_zscore, holding_days) and "
+    "operators; never reference future-looking data. Use only OHLCV-derived features unless a "
+    "proxy is explicitly present. A proxy-based hypothesis must set backtest_readiness to "
+    "'ready_with_proxy_limitations'. Keep the economic rationale tied to the hypothesis's "
+    "mechanism."
 )
 
 # ponytail: deterministic spec per feasible hypothesis_name; only the keys present here
@@ -108,9 +110,11 @@ class StrategyFormalizerAgent(Agent):
         specs: list[StrategySpec] = []
         for hyp in feasible:
             fixture = _SPECS.get(hyp.hypothesis_name)
-            if fixture is None:  # ponytail: skip anything we have no formalization for
+            if fixture is None and self.llm.provider_name == "mock":
                 continue
-            ctx = {"hypothesis": hyp.model_dump(mode="json"), "mock": fixture}
+            ctx = {"hypothesis": hyp.model_dump(mode="json")}
+            if fixture is not None:
+                ctx["mock"] = fixture
             out = self.llm.generate_structured(PROMPT, StrategySpec, ctx)
             assert isinstance(out, StrategySpec)
             specs.append(out)

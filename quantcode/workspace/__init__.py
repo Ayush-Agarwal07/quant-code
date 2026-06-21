@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import json
 from pathlib import Path
 
 import yaml
@@ -35,10 +36,11 @@ class WorkspaceManager:
         self.research_runs = self.root / "research_runs"
         self.reports = self.root / "reports"
         self.memory = self.root / "memory"
+        self.paper = self.root / "paper"
 
     # --- setup ---------------------------------------------------------------
     def ensure_dirs(self) -> None:
-        for d in (self.strategies, self.research_runs, self.reports, self.memory):
+        for d in (self.strategies, self.research_runs, self.reports, self.memory, self.paper):
             d.mkdir(parents=True, exist_ok=True)
 
     # --- run numbering -------------------------------------------------------
@@ -82,6 +84,11 @@ class WorkspaceManager:
         self._atomic_write(path, pack.model_dump_json(indent=2))
         return path
 
+    def write_paper_state(self, name: str, state: dict[str, object]) -> Path:
+        path = self.paper / f"{_slug(name)}.json"
+        self._atomic_write(path, json.dumps(state, indent=2, sort_keys=True))
+        return path
+
     # --- reads ---------------------------------------------------------------
     def read_existing_strategies(self) -> list[StrategySpec]:
         return [
@@ -89,12 +96,19 @@ class WorkspaceManager:
             for p in sorted(self.strategies.glob("*.yaml"))
         ]
 
+    def read_paper_state(self, name: str) -> dict[str, object] | None:
+        path = self.paper / f"{_slug(name)}.json"
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
     def list_workspace(self) -> dict[str, list[str]]:
         return {
             "strategies": [p.name for p in sorted(self.strategies.glob("*.yaml"))],
             "research_runs": [p.name for p in sorted(self.research_runs.glob("*.json"))],
             "reports": [p.name for p in sorted(self.reports.glob("*.md"))],
             "memory": [p.name for p in sorted(self.memory.glob("*.json"))],
+            "paper": [p.name for p in sorted(self.paper.glob("*.json"))],
         }
 
     # --- internals -----------------------------------------------------------

@@ -63,6 +63,23 @@ class BacktestResult(BaseModel):
     note: str
 
 
+class PaperSignal(BaseModel):
+    ticker: str
+    price: float
+    signal_value: float
+    weight: float
+
+
+class PaperTradePlan(BaseModel):
+    executed: bool
+    source: str
+    as_of: str | None
+    rebalance: str
+    signal: str
+    picks: list[PaperSignal]
+    note: str
+
+
 # --------------------------------------------------------------------------- price sources
 def _fetch_stooq(ticker: str) -> list[tuple[str, float]] | None:
     sym = ticker.lower().replace("-usd", ".v") if ticker.endswith("-USD") else f"{ticker.lower()}.us"  # noqa: E501
@@ -179,7 +196,7 @@ def _std(xs: list[float]) -> float:
 _STEP = {"daily": 1, "weekly": 5, "monthly": 21}
 
 
-def run_backtest(spec: StrategySpec) -> BacktestResult:
+def _prepare_inputs(spec: StrategySpec) -> dict[str, Any]:
     tag = _asset_tag(spec.universe)
     tickers = _UNIVERSES.get(tag, _UNIVERSES["EQUITY"])
 
@@ -193,16 +210,15 @@ def run_backtest(spec: StrategySpec) -> BacktestResult:
             source = "stooq/yahoo"
         else:
             fails += 1
-            if fails >= 3 and not series:  # egress clearly blocked → stop, go simulated
+            if fails >= 3 and not series:
                 break
     executed = len(series) >= 3
-    if not executed:  # no live data reachable → seeded simulation, clearly flagged
+    if not executed:
         series = {tk: _synthetic(tk) for tk in tickers}
         source = "simulated"
 
-    # Align on common trading dates.
     common = set.intersection(*[{d for d, _ in s} for s in series.values()])
-    dates = sorted(common)[-260:]  # ~1y of trading days
+    dates = sorted(common)[-260:]
     closes = {tk: [dict(s)[d] for d in dates] for tk, s in series.items()}
 
     feature = spec.ranking_rule.feature if spec.ranking_rule else (
@@ -210,12 +226,37 @@ def run_backtest(spec: StrategySpec) -> BacktestResult:
     )
     descending = not (spec.ranking_rule and spec.ranking_rule.order == "ascending")
     req_top = spec.ranking_rule.top_n if spec.ranking_rule and spec.ranking_rule.top_n else 3
-    # Cap to a third of the basket — the strategy's top_n targets a large universe; uncapped
-    # it would just hold every name here and stop testing the signal.
     top_n = min(req_top, max(2, len(closes) // 3))
-    # We only fetch closes, so volume/cross-sectional features fall back to a momentum proxy.
     proxied = not feature.lower().startswith(("return", "sma", "realized_vol", "rsi"))
-    step = _STEP.get(spec.portfolio_rules.rebalance_frequency, 5)
+    return {
+        "executed": executed,
+        "source": source,
+        "dates": dates,
+        "closes": closes,
+        "feature": feature,
+        "descending": descending,
+        "top_n": top_n,
+        "proxied": proxied,
+        "step": _STEP.get(spec.portfolio_rules.rebalance_frequency, 5),
+        "note": (
+            f"Long-only top-{top_n} by {feature}"
+            + (" — approximated by a return_20d proxy (only closes fetched). " if proxied else ", ")
+            + f"equal weight, {spec.portfolio_rules.rebalance_frequency} rebalance "
+            f"over {len(series)} names. "
+            + ("Real EOD closes." if executed else "SIMULATED prices — no live market data reachable from the server.")
+        ),
+        "universe": list(series.keys()),
+    }
+
+
+def run_backtest(spec: StrategySpec) -> BacktestResult:
+    data = _prepare_inputs(spec)
+    dates = data["dates"]
+    closes = data["closes"]
+    feature = data["feature"]
+    descending = data["descending"]
+    top_n = data["top_n"]
+    step = data["step"]
 
     equity = [EquityPoint(t=0, date=dates[0], equity=100.0)]
     rets: list[float] = []
@@ -240,29 +281,64 @@ def run_backtest(spec: StrategySpec) -> BacktestResult:
         equity.append(EquityPoint(t=len(equity), date=dates[i + step], equity=round(v, 2)))
 
     return BacktestResult(
-        executed=executed,
-        source=source,
-        universe=list(series.keys()),
+        executed=data["executed"],
+        source=data["source"],
+        universe=data["universe"],
         start=dates[start_i] if len(dates) > start_i else None,
         end=dates[-1] if dates else None,
         rebalance=spec.portfolio_rules.rebalance_frequency,
         signal=(
             f"{feature} · {'desc' if descending else 'asc'} · top {top_n}"
-            + (" (proxy: return_20d)" if proxied else "")
+            + (" (proxy: return_20d)" if data["proxied"] else "")
         ),
         equity=equity,
-        note=(
-            f"Long-only top-{top_n} by {feature}"
-            + (" — approximated by a return_20d proxy (only closes fetched). " if proxied else ", ")
-            + f"equal weight, {spec.portfolio_rules.rebalance_frequency} rebalance "
-            f"over {len(series)} names. "
-            + (
-                "Real EOD closes."
-                if executed
-                else "SIMULATED prices — no live market data reachable from the server."
-            )
-        ),
+        note=data["note"],
         **_stats(rets, equity),
+    )
+
+
+def build_paper_plan(spec: StrategySpec) -> PaperTradePlan:
+    data = _prepare_inputs(spec)
+    dates = data["dates"]
+    closes = data["closes"]
+    if not dates:
+        return PaperTradePlan(
+            executed=data["executed"],
+            source=data["source"],
+            as_of=None,
+            rebalance=spec.portfolio_rules.rebalance_frequency,
+            signal="n/a",
+            picks=[],
+            note=data["note"],
+        )
+    ranked: list[tuple[float, str]] = []
+    i = len(dates) - 1
+    for tk, cs in closes.items():
+        val = _signal_value(cs, i, data["feature"])
+        if val is not None:
+            ranked.append((val, tk))
+    ranked.sort(reverse=data["descending"])
+    count = max(1, min(data["top_n"], len(ranked)))
+    picks = [
+        PaperSignal(
+            ticker=tk,
+            price=round(closes[tk][i], 2),
+            signal_value=round(val, 4),
+            weight=round(1 / count, 4),
+        )
+        for val, tk in ranked[:count]
+    ]
+    return PaperTradePlan(
+        executed=data["executed"],
+        source=data["source"],
+        as_of=dates[i],
+        rebalance=spec.portfolio_rules.rebalance_frequency,
+        signal=(
+            f"{data['feature']} · {'desc' if data['descending'] else 'asc'} · top {data['top_n']}"
+            + (" (proxy: return_20d)" if data["proxied"] else "")
+        ),
+        picks=picks,
+        note=data["note"],
     )
 
 
@@ -304,11 +380,13 @@ def _demo() -> None:
     from quantcode.schemas import sample_strategy_spec
 
     res = run_backtest(sample_strategy_spec())
+    plan = build_paper_plan(sample_strategy_spec())
     assert res.equity[0].equity == 100.0, "curve must start at 100"
     assert res.periods > 0, "should have rebalanced at least once"
     assert -1.0 <= res.max_drawdown <= 0.0, f"bad drawdown {res.max_drawdown}"
     assert 0.0 <= res.win_rate <= 1.0, f"bad win rate {res.win_rate}"
     assert len(res.equity) == res.periods + 1, "equity points = periods + 1"
+    assert plan.picks, "paper plan must produce picks"
     print(f"OK: {res.source} | periods={res.periods} | ret={res.total_return:+.2%} "
           f"| sharpe={res.sharpe} | maxDD={res.max_drawdown:.2%} | win={res.win_rate:.0%}")
 

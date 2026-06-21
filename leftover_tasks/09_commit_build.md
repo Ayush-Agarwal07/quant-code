@@ -1,22 +1,18 @@
 # 09 — Commit the build
 
-**Status:** OPEN (nothing committed). **Priority:** low. **Effort:** XS.
+**Status:** OPEN. **Priority:** P3. **Effort:** XS.
 
 ## Why it matters
-The entire QuantCode build is uncommitted in the working tree. Judges browsing the repo (and
-your own safety) want a clean commit history.
+Recent commits exist on `main`, but the current P0/P1 cleanup is still uncommitted.
 
-## Current state (uncommitted)
-- **New:** the whole `quantcode/` package (48 .py files), `DECISIONS.md`,
-  `redis_implementation.md`, `leftover_tasks/`.
-- **Modified:** `pyproject.toml`, `.gitignore`, `.env.example`.
-- `deprecated/` untouched; `workspace/` generated output is gitignored (only READMEs tracked).
+## Current state
+- Recent commits exist (`feat: benchmarks`, frontend work, README update).
+- Current working tree has focused P0/P1 code/doc edits; commit when ready.
 
 ## Steps
-1. Branch off `main` (don't commit straight to main): `git checkout -b build/quantcode`.
-2. Sanity: `.venv/bin/ruff check quantcode/ tests/ && .venv/bin/mypy quantcode/ && .venv/bin/pytest -q`.
-3. Stage + commit with a clear message (end with the required `Co-Authored-By` trailer).
-4. Optionally open a PR via `gh`.
+1. Sanity: `.venv/bin/ruff check quantcode/ tests/ && .venv/bin/mypy quantcode/ && .venv/bin/pytest -q`.
+2. Stage + commit with a clear message.
+3. Optionally open a PR via `gh`.
 
 ## Notes
 - Only commit when you ask — this task documents it; I won't push without a go.
@@ -24,4 +20,4 @@ your own safety) want a clean commit history.
   D6) — optional.
 
 ## Acceptance
-The build lives on a branch with a clean commit (and optionally a PR), checks green.
+The current working tree is clean and checks pass.

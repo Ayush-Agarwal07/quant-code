@@ -1,22 +1,23 @@
 # 01 — Dashboard / front end (D5)
 
-**Status:** OPEN (deferred by decision D5). **Priority:** ★ high. **Effort:** M–L.
+**Status:** PARTIAL. **Priority:** P2. **Effort:** S.
 
 ## Why it matters
-The CLI `demo` already proves everything, but the two sponsor pitch surfaces — the Redis
-memory-explorer and the compaction before/after — are currently text-only. A read-only
-visual viewer is build-priority #6 in the docs and the fastest way to make VC/founder judges
-"get it." `dashboard/` and `dashboard/panels/` are scaffolded (READMEs only).
+The frontend exists and covers the pitch surfaces, but repo docs and launch instructions are
+still split between old scaffolding notes and the newer Next.js app.
 
 ## Current state
-- No `dashboard/` code. D5 was deliberately skipped to ship the core.
-- All data the dashboard needs already exists as artifacts + Redis.
+- `frontend/` has a read-only Next.js dashboard with `/memory`, `/compaction`, `/runs`, etc.
+- `quantcode/dashboard/api.py` exists for the external API path.
+- `quantcode/dashboard/README.md` and `panels/README.md` still describe a scaffold.
+- No obvious `quantcode dashboard` command.
+- Default local Next API reads workspace files; Redis semantic search is available through the
+  external API/proxy path.
 
-## Decide first
-Stack (re-open D5): **static HTML export** (recommended — zero-server, stage-safe, no/low new
-deps) vs `rich` TUI (zero deps, less visual) vs Streamlit (heavy dep + live server; the
-"complex frontend" the docs warn against). Adding any frontend dep is a 🧑‍⚖️ HITL checkpoint
-(dashboard/README).
+## Remaining steps
+1. Update `quantcode/dashboard/README.md` and `panels/README.md` to point at `frontend/`.
+2. Document the Redis-backed dashboard path clearly (`NEXT_PUBLIC_API_URL` / API server).
+3. Optional: add a tiny `quantcode dashboard` launcher or print-only helper.
 
 ## Data sources (read-only — never mutate)
 - `workspace/research_runs/run_*.json` → `QuantResearchPacket`
@@ -33,16 +34,9 @@ deps) vs `rich` TUI (zero deps, less visual) vs Streamlit (heavy dep + live serv
 5. Strategy YAML viewer
 6. Critique view
 
-## Steps
-1. Re-confirm the stack (D5).
-2. Build a loader that reads the artifacts once and passes data to panels (don't re-read per panel).
-3. Implement panels 1 & 2 first (the pitch), then 3.
-4. Expose as `quantcode dashboard` (renders/export) — keep it read-only by construction.
-5. Drive it off a `quantcode demo` run (two comparable runs for panel 3).
-
 ## Acceptance
-- A read-only view (HTML file or TUI) showing panels 1–3 from a real demo run, with no path
-  that writes Redis or files. No new heavy deps without sign-off.
+- Docs clearly explain the dashboard demo path, including how to see Redis-backed memory search.
+- Optional CLI launch command exists if useful.
 
 ## Refs
 `quantcode/dashboard/README.md`, `quantcode/dashboard/panels/README.md`,

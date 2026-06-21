@@ -19,7 +19,7 @@ __all__ = ["LLMClient", "LLMError", "get_client"]
 
 def get_client(provider: str | None = None) -> LLMClient:
     """Build the configured LLM client. Defaults to mock when nothing is set."""
-    name = (provider or config.llm_provider or "mock").strip().lower()
+    name = (provider or os.getenv("QC_LLM_PROVIDER") or config.llm_provider or "mock").strip().lower()
     if name == "mock":
         return MockLLMClient()
     if name == "anthropic":
