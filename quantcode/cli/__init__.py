@@ -639,8 +639,20 @@ def gui(
         str(frontend_port),
     ]
     backend_env = os.environ.copy()
+    backend_env.pop("QC_MEMORY_BACKEND", None)  # GUI runs on real Redis memory, never the fallback
     frontend_env = os.environ.copy()
     frontend_env["NEXT_PUBLIC_API_URL"] = f"http://{api_host}:{api_port}"
+
+    # surface the memory backend up front (lessons only persist across runs on redis)
+    backend_name = Memory.connect().backend_name
+    if backend_name == "redis":
+        console.print("[green]memory backend: redis[/green] (lessons persist across runs)")
+    else:
+        console.print(
+            "[yellow]Redis not reachable — memory falls back to in-memory (lessons will NOT "
+            "persist). Start it:[/yellow] docker run -d -p 6379:6379 -p 8001:8001 "
+            "redis/redis-stack:latest"
+        )
 
     backend_proc: subprocess.Popen[bytes] | None = None
     frontend_proc: subprocess.Popen[bytes] | None = None
