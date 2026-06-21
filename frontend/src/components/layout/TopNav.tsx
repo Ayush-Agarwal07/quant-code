@@ -27,6 +27,15 @@ export function TopNav() {
         QuantForge
       </Link>
 
+      <div className="hidden items-center gap-2 font-mono text-[11px] uppercase tracking-widest sm:flex">
+        <Link
+          href="/compaction"
+          className="rounded border border-border px-2 py-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          Compaction
+        </Link>
+      </div>
+
       <div className="flex-1" />
 
       {/* Status pills — sourced from /overview */}
