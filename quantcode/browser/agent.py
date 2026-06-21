@@ -54,8 +54,10 @@ class _TextExtractor(HTMLParser):
     text we map into a PriorArtTheme.
     """
 
-    _BLOCK_TAGS = {"h1", "h2", "h3", "p", "li"}
-    _SKIP_TAGS = {"script", "style", "noscript"}
+    _BLOCK_TAGS = {"h1", "h2", "h3", "p", "li", "blockquote"}
+    # Skip non-content code AND layout chrome (site nav/masthead/footer/sidebars) so the
+    # extracted theme/summary is the page's MAIN content, not "subscribe to mailings" links.
+    _SKIP_TAGS = {"script", "style", "noscript", "header", "nav", "footer", "aside"}
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -178,15 +180,21 @@ class BrowserResearcherAgent:
     def _fetch_html(self, url: str) -> str:
         """Open a Browserbase session and drive it with Playwright over CDP.
 
-        Lazy imports keep `browserbase`/`playwright` out of the module-import path; mypy
-        cannot resolve uninstalled deps, hence the local ignores (see brief: do NOT edit
-        pyproject for these).
+        Lazy imports keep `browserbase`/`playwright` out of the module-import path (they're
+        the optional `[browser]` extra); mypy treats them as missing-OK via the pyproject
+        override, alongside the other optional deps.
         """
-        from browserbase import Browserbase  # type: ignore[import-not-found]
-        from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
+        from browserbase import Browserbase
+        from playwright.sync_api import sync_playwright
 
+        project_id = config.browserbase_project_id
+        if not project_id:
+            raise RuntimeError(
+                "BROWSERBASE_PROJECT_ID is unset — a Browserbase session needs a project id "
+                "(dashboard → Settings → Projects, or resolve it from the API key)."
+            )
         bb = Browserbase(api_key=config.browserbase_api_key)
-        session = bb.sessions.create(project_id=config.browserbase_project_id)
+        session = bb.sessions.create(project_id=project_id)
         with sync_playwright() as pw:
             browser = pw.chromium.connect_over_cdp(session.connect_url)
             try:

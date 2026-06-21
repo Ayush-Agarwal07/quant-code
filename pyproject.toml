@@ -73,5 +73,5 @@ exclude = ["tests/"]
 
 # Optional / unstubbed third-party deps (installed conditionally or ship no stubs)
 [[tool.mypy.overrides]]
-module = ["anthropic.*", "fastembed.*"]
+module = ["anthropic.*", "fastembed.*", "browserbase.*", "playwright.*"]
 ignore_missing_imports = true

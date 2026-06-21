@@ -1,6 +1,25 @@
 # 04 — Live Browserbase `research-url`
 
-**Status:** OPEN. **Priority:** med. **Effort:** M. **🧑‍⚖️ HITL:** live fetch (credits + scraping a real site).
+**Status:** DONE (2026-06-21 — verified live on 3 real Browserbase sessions). **Priority:** med. **Effort:** M. **🧑‍⚖️ HITL:** live fetch (credits + scraping a real site).
+
+**Verified live:** installed `[browser]` extra + `playwright install chromium`; ran
+`research-url --confirm` against `arxiv.org/abs/2105.13727` (run_021, then run_023 after the
+extractor fix) and `finance.yahoo.com/quote/AAPL` (run_022). All three were real Browserbase
+sessions (COMPLETED, us-west-2), provenance `source_url` set, pipeline ran to a packet — bounty
+requirement (genuinely Browserbase-powered, no HTTP fallback) met. SDK API confirmed current
+(`sessions.create → SessionCreateResponse.connect_url`, browserbase 1.13.0 / playwright 1.60.0).
+
+**Extractor fix (the first run grabbed nav/footer chrome):** `_TextExtractor` now collects
+`<blockquote>` (captures the arXiv abstract) and skips layout chrome (`header`/`nav`/`footer`/
+`aside`). arXiv now yields the real title + abstract with `mechanism=momentum`. Also: `_fetch_html`
+guards a missing `BROWSERBASE_PROJECT_ID` with a clear error; mypy now type-checks the live SDK
+calls (browserbase/playwright added to the optional-dep overrides). Full gate green.
+
+**Honest caveats:** (1) Yahoo Finance hit bot-detection (served an error page) and has no strategy
+prose — keep arXiv as the demo target; (2) extractor is deterministic/heuristic (skips ALL
+`<header>`, so an `<article><header><h1>` title could be missed on other sites) — fine for v1,
+a real-LLM enrich is the future option. Keys live in `.env` (gitignored); project id auto-resolved
+from the API key via `bb.projects.list()`.
 
 ## Why it matters
 Browserbase is a committed track. The deterministic offline extraction (`extract_from_html`)
