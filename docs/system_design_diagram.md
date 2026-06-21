@@ -119,6 +119,9 @@ This makes QuantCode feel like a local coding agent rather than a chat-only pipe
 
 ## Redis Memory Path
 
+> Library options + the "adopt Redis Agent Memory Server vs hand-roll" decision:
+> [`sponsor_tech_references.md`](sponsor_tech_references.md).
+
 ```mermaid
 flowchart TD
     PIPE["Agent pipeline"] --> TRACE["raw trace"]
@@ -236,11 +239,12 @@ Use “research memory,” “critique-grounded memory,” or “feasibility-gro
 4. Compaction
 5. Second-run memory retrieval demo
 6. Minimal read-only dashboard
-7. Browserbase `research-url`
-8. Arize/Sentry observability
+7. Browserbase `research-url` (committed — Browserbase Python SDK)
 
 Cut first if time gets tight:
 
+- Arize / Sentry observability (dropped from scope)
+- Anthropic prize track (kept as product framing only)
 - Deepgram
 - Band
 - Orkes

@@ -214,16 +214,26 @@ Run 2: warning is retrieved and changes behavior
 
 ## Sponsor Strategy
 
-Primary:
+> Implementation docs for the committed integrations: [`sponsor_tech_references.md`](sponsor_tech_references.md)
+> (Redis Iris / Agent Memory Server / RedisVL, Browserbase Python SDK).
 
-- **Redis** — memory substrate: traces, episodes, semantic lessons, context packs.
-- **Token Company** — ResearchTrace Compiler with compression metrics.
-- **Anthropic** — “Claude Code for quant research” product framing and workspace-first agent loop.
+All in:
 
-Secondary:
+- **Redis** — memory substrate: traces, episodes, semantic lessons, context packs, vector search.
+- **The Token Company** — ResearchTrace Compiler with **measured** compression metrics.
 
-- **Browserbase** — `research-url <url>` extracts prior-art themes from pages.
-- **Arize/Sentry** — observability and reliability if quick to add.
+Committed:
+
+- **Browserbase** — `research-url <url>` extracts prior-art themes from pages, via the
+  **Browserbase Python SDK + Playwright** (not Stagehand). See
+  [`sponsor_tech_references.md`](sponsor_tech_references.md).
+
+Not targeted:
+
+- **Anthropic prize** — "Claude Code for systematic strategy research" stays as the product
+  framing, but we are not chasing the Anthropic track. Its criteria reward
+  health/education/economic-opportunity domains, which quant research fits poorly.
+- **Arize / Sentry** — observability is dropped from scope (no `observability/` module).
 
 Cut:
 

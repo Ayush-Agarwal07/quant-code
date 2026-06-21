@@ -32,9 +32,18 @@ The hub: imports `agents/`, `tools/`, `memory/`, `compaction/`, `workspace/`,
 ## Implementation instructions
 
 1. Record a trace event per step (id, inputs ref, output ref, timing) for Tier 1 and
-   the dashboard timeline.
+   the dashboard timeline. Keep events **structured/typed** (a `schemas/` type), not
+   free-text logs — and route export through a `QC_TRACE_EXPORTER` config (`none`
+   default; only sink today is Redis Tier 1). This keeps the seam open to bolt on
+   Arize/OTel later as a single exporter, with no pipeline changes. Don't flatten
+   events to log strings — that's the one thing that makes observability expensive later.
 2. Memory is compacted **before** promotion — never promote raw Tier 1 to Tier 2/3.
 3. Make agent steps swappable with mocks so `demo` runs offline.
+4. Handle failure at **one clean error boundary** (CLI / pipeline top level); don't
+   swallow exceptions mid-pipeline (`except: pass`). This keeps error monitoring a
+   later one-liner — Sentry auto-captures unhandled exceptions, so the only seam to
+   preserve is "let errors reach the boundary." Off by default (e.g. `QC_SENTRY_DSN`
+   unset); no per-step wiring needed.
 
 ## ❓ Open questions (ask human)
 

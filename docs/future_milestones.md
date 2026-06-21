@@ -1,14 +1,22 @@
 # Milestones
 
-## Milestone 1 — Agentic Research Layer (complete)
+## Milestone 1 — Agentic Research Layer (`deprecated/` baseline, being rebuilt)
 
 Produce structured, data-aware research packets with deterministic mock behavior, critiques,
 experiment plans, experiment-runner stubs, and memory-write proposals.
 
-**What exists:** 9-agent pipeline, strict Pydantic schemas, feasibility gate, offline anomaly
-catalog, `MockLLMClient`, CLI (`quantcode research` / `quantcode demo`), full test suite.
+> This milestone describes the original implementation now in `deprecated/`. It is the
+> reference baseline being rebuilt fresh in `quantcode/` (see `architecture.md`). "What
+> exists" below means *exists in `deprecated/`*, not in the new package.
+
+**What exists (in `deprecated/`):** 9-agent pipeline, strict Pydantic schemas, feasibility
+gate, offline anomaly catalog, `MockLLMClient`, CLI (`quantcode research` / `quantcode demo`),
+full test suite.
 
 **What is stubbed:** experiment execution, memory persistence, broker, live data.
+
+> LLM backend for the rebuild is **undecided** — the new `quantcode/config.py` leaves it
+> unset; do not assume `MockLLMClient` carries over.
 
 ---
 
@@ -23,9 +31,9 @@ Transform the CLI research engine into a Claude Code-style workspace agent.
 - `ExperimentRunnerStub` — returns `status="not_executed"` and planned metrics only
 - `ResearchTrace Compiler` / `CompactorAgent` — measurable compression ratio and retained lessons
 - `MemoryCuratorAgent` — promotes compacted candidates to Redis Tier 2/3
-- `redis_memory` tool — 3-tier interface (working trace, episodic memory, semantic lessons)
-- `arize_tracer` tool — span per agent step
-- `sentry_logger` tool — error capture on tool failures, schema errors, Redis unavailable
+- `redis_memory` tool — 3-tier interface (working trace, episodic memory, semantic lessons),
+  with vector search; adopt Redis Agent Memory Server vs hand-roll is an open decision
+  (see `sponsor_tech_references.md`)
 - New CLI commands: `quantcode init`, `quantcode demo`, `quantcode inspect`,
   `quantcode memory search`, `quantcode compact`
 - Second-run memory demo showing the agent avoids previously critiqued feasibility and validation mistakes
@@ -36,18 +44,17 @@ Transform the CLI research engine into a Claude Code-style workspace agent.
 
 ---
 
-## Milestone 3 — Browserbase Research URL + Observability (planned)
+## Milestone 3 — Browserbase Research URL (committed)
 
-Add narrow external research ingestion and reliability instrumentation without changing the
-core schema path.
+Add narrow external research ingestion without changing the core schema path.
 
 **Build:**
-- `BrowserResearcherAgent` — Browserbase/Stagehand URL ingestion → `list[PriorArtTheme]`
+- `BrowserResearcherAgent` — **Browserbase Python SDK + Playwright** URL ingestion →
+  `list[PriorArtTheme]` (not Stagehand; see `sponsor_tech_references.md`)
 - `quantcode research-url <url>` — routes extracted themes into the normal pipeline
-- `arize_tracer` tool — span per agent step, validation counts, latency placeholders
-- `sentry_logger` tool — error capture on tool failures, schema errors, Redis unavailable
 
-**Non-scope:** general web scraping, automated source discovery, live data ingestion.
+**Non-scope:** general web scraping, automated source discovery, live data ingestion,
+observability (Arize/Sentry dropped from scope).
 
 ---
 

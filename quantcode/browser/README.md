@@ -4,6 +4,9 @@
 
 ## Purpose
 
+> SDK docs (use the **Browserbase Python SDK + Playwright**, not Stagehand):
+> [`../../docs/sponsor_tech_references.md`](../../docs/sponsor_tech_references.md).
+
 `BrowserResearcherAgent` — the `research-url <url>` path. Fetches a web page and
 turns it into prior-art / mechanism evidence. The bounty requires the agent be
 **genuinely powered by the Browserbase platform** — a plain `requests.get` does not

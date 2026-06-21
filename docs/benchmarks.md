@@ -6,6 +6,11 @@ This document catalogues benchmarks for evaluating QuantCode's key capabilities:
 compaction, hallucination rate, memory retrieval quality, research pipeline quality, and
 end-to-end strategy validity.
 
+> Note: references to components as "already built" / "existing" (e.g. `ResearchCriticAgent`,
+> `AgentTrace` schemas) point at the `deprecated/` baseline being rebuilt in `quantcode/`.
+> Observability is out of scope — Arize/Sentry are not used; instrument from the in-process
+> pipeline trace instead.
+
 ---
 
 ## 1. Compaction Quality
@@ -104,16 +109,24 @@ complete. Key metrics:
 
 ## 5. Pipeline Instrumentation
 
-**Approach: Stage-exit metrics via Arize**
+**Approach: Stage-exit metrics (in-process)**
 
-Instrument each of the 9 agents with:
+Instrument each agent with:
 - **Token count** in / out
 - **Wall time** per agent step
 - **Output validity**: does the output parse as a valid Pydantic model? (`extra="forbid"`)
 - **Critic pass rate**: what fraction of `StrategySpec` outputs survive `ResearchCriticAgent`
   with verdict `accept`?
 
-The `arize_tracer` tool already emits a span per agent step — extend it with these fields.
+Emit these from the pipeline's Tier 1 trace events — no external observability vendor
+(Arize/Sentry are out of scope). The token/time metrics still feed the Token Company
+compaction story.
+
+> Seam (ponytail): keep trace events **structured/typed** (one record per agent step,
+> not free-text logs) and put export behind a `QC_TRACE_EXPORTER` config (`none` default).
+> Today the only sink is Redis Tier 1; adding Arize/OTel later is then a single exporter
+> reading the same records — no agent or pipeline changes. The only thing that makes this
+> expensive later is logging unstructured strings now, so don't.
 
 **Effort: Low** — instrumentation only; no new dataset required.
 
@@ -131,5 +144,5 @@ The `arize_tracer` tool already emits a span per agent step — extend it with t
 | **1** | Compaction ROUGE-L + slot-fill rate | Medium | Direct demo of ResearchTrace Compiler — visual and differentiating |
 | **2** | Memory retrieval recall (RAGAS) | Low | Shows Redis memory avoids repeated failures |
 | **3** | Hallucination rate via critic pass rate | Low–Medium | Critic already built; measure verdict distribution |
-| **4** | Pipeline token efficiency (Arize) | Low | Easy to instrument; shows cost discipline |
+| **4** | Pipeline token efficiency (in-process trace) | Low | Easy to instrument; shows cost discipline |
 | **5** | AlphaForgeBench strategy quality | Medium | Long-term target; blocked on Milestone 3 backtester |

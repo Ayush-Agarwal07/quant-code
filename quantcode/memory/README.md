@@ -4,6 +4,9 @@
 
 ## Purpose
 
+> Library docs + the "adopt Redis Agent Memory Server vs hand-roll" decision:
+> [`../../docs/sponsor_tech_references.md`](../../docs/sponsor_tech_references.md).
+
 The Redis-backed agent memory substrate — **not a cache**. This is QuantCode's
 strongest pitch. The Redis bounty rewards "beyond caching: agent memory, vector
 search, context retrieval." This module is exactly that, in three tiers.
