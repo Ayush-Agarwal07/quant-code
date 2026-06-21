@@ -68,11 +68,12 @@ export function commandPresets(ctx: CommandContext): ProposedCommand[] {
   return [
     {
       title: "Strategy",
-      detail: "Run the full research pipeline from a fresh objective.",
+      detail: "Run the full research pipeline. Type an objective to customize, or use the default.",
       request: req("strategy", {
         objective: strategy
           ? `Find variants of ${strategy.strategy_name}: ${strategy.hypothesis}`
-          : "Find short-horizon underreaction strategies",
+          // mirrors cli DEFAULT_STRATEGY_OBJECTIVE so the preset matches `quantcode strategy`
+          : "Find short-horizon underreaction strategies in US liquid equities using only OHLCV and earnings calendar data",
       }),
     },
     ...(strategy

@@ -20,11 +20,29 @@ function resultSummary(job: AgentCommandJob): string {
   if (result.command === "check" || result.command === "iterate") {
     const backtest = result.backtest;
     if (!backtest) return "Backtest complete.";
-    return `Sharpe ${backtest.sharpe.toFixed(2)} · return ${(backtest.total_return * 100).toFixed(1)}% · ${result.papers?.length ?? 0} papers · ${result.news?.length ?? 0} news.`;
+    return `Sharpe ${(backtest.sharpe ?? 0).toFixed(2)} · return ${((backtest.total_return ?? 0) * 100).toFixed(1)}% · ${result.papers?.length ?? 0} papers · ${result.news?.length ?? 0} news.`;
   }
   const portfolio = result.paper_trade?.portfolio;
   if (!portfolio) return "Paper trade updated.";
-  return `Equity $${portfolio.equity.toLocaleString()} · cash $${portfolio.cash.toLocaleString()} · ${result.paper_trade?.orders.length ?? 0} order(s).`;
+  return `Equity $${(portfolio.equity ?? 0).toLocaleString()} · cash $${(portfolio.cash ?? 0).toLocaleString()} · ${result.paper_trade?.orders?.length ?? 0} order(s).`;
+}
+
+/** Minimal inline equity curve — no chart lib. green if up over the window, red if down. */
+function Sparkline({ values }: { values: number[] }) {
+  if (!values || values.length < 2) return null;
+  const lo = Math.min(...values);
+  const span = Math.max(...values) - lo || 1;
+  const W = 240;
+  const H = 40;
+  const pts = values
+    .map((v, i) => `${((i / (values.length - 1)) * W).toFixed(1)},${(H - ((v - lo) / span) * H).toFixed(1)}`)
+    .join(" ");
+  const up = values[values.length - 1] >= values[0];
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-10 w-full rounded border border-border bg-card">
+      <polyline points={pts} fill="none" stroke={up ? "#34d399" : "#f87171"} strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
 }
 
 function runLink(job: AgentCommandJob): string | null {
@@ -124,10 +142,30 @@ export function CommandCard({
             <Check className="h-3 w-3" /> done
           </div>
           <p className="text-[12px] leading-relaxed text-foreground/85">{resultSummary(job)}</p>
-          {job.result?.ascii_pnl && (
-            <pre className="overflow-x-auto rounded border border-border bg-card px-2 py-2 font-mono text-[10px] text-muted-foreground">
-              {job.result.ascii_pnl}
-            </pre>
+          {/* HITL iterate: what the auto/explicit revision changed */}
+          {job.result?.iteration_note && (
+            <p className="font-mono text-[11px] text-amber-400">↻ {job.result.iteration_note}</p>
+          )}
+          {/* real PnL curve from the backtest equity series */}
+          {job.result?.backtest?.equity && job.result.backtest.equity.length > 1 && (
+            <Sparkline values={job.result.backtest.equity.map((p) => p.equity)} />
+          )}
+          {/* paper-trade: portfolio equity history + orders */}
+          {job.result?.paper_trade && (
+            <div className="space-y-1">
+              <Sparkline values={(job.result.paper_trade.portfolio.history ?? []).map((h) => h.equity)} />
+              {job.result.paper_trade.orders.length === 0 ? (
+                <p className="font-mono text-[10px] text-muted-foreground">no rebalancing orders — already at target.</p>
+              ) : (
+                <ul className="font-mono text-[10px] text-foreground/85">
+                  {job.result.paper_trade.orders.map((o) => (
+                    <li key={`${o.side}-${o.ticker}`}>
+                      {o.side} {o.shares} {o.ticker} @ ${o.price} (${o.notional})
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
           {runLink(job) && (
             <Link

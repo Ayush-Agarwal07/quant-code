@@ -39,6 +39,7 @@ from quantcode.schemas import (
     QuantResearchPacket,
     QuantResearchRequest,
     StrategyCritique,
+    StrategySpec,
     TraceEvent,
     WorkspaceArtifact,
 )
@@ -102,6 +103,19 @@ def _critique_summary(c: StrategyCritique) -> str:
     return f"{c.strategy_name}: {c.verdict}" + (f" — {risks}" if risks else "")
 
 
+def _dedupe_names(specs: list[StrategySpec]) -> list[StrategySpec]:
+    """Unique strategy_name across a run — a real LLM can emit two identical names, which would
+    clobber YAML files (named by strategy_name) and collide as React keys. Suffix dups: 'x (2)'."""
+    seen: dict[str, int] = {}
+    out: list[StrategySpec] = []
+    for s in specs:
+        seen[s.strategy_name] = n = seen.get(s.strategy_name, 0) + 1
+        if n > 1:
+            s = s.model_copy(update={"strategy_name": f"{s.strategy_name} ({n})"})
+        out.append(s)
+    return out
+
+
 def _detail(out: Any) -> str:
     """Full serialized step output as a VALID JSON array — the real context an uncompacted
     agent would carry forward (the honest `tokens_before` basis) and the structured source
@@ -163,7 +177,8 @@ def run_research(
     validation_reports = [validator.validate(s) for s in specs]
     valid_specs = [s for s, rep in zip(specs, validation_reports, strict=True) if rep.valid]
 
-    finalized = step.run("StrategyWriterAgent", lambda: StrategyWriterAgent().run(valid_specs))
+    written = step.run("StrategyWriterAgent", lambda: StrategyWriterAgent().run(valid_specs))
+    finalized = _dedupe_names(written)
 
     artifacts: list[WorkspaceArtifact] = []
     for spec in finalized:

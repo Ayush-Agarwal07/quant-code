@@ -456,6 +456,7 @@ export interface AgentCommandResult {
   lessons?: Lesson[];
   ascii_pnl?: string;
   adjusted_spec?: StrategySpec | null;
+  iteration_note?: string | null;
   promoted_lessons?: number;
   paper_trade?: PaperTradeResult;
 }

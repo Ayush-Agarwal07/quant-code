@@ -14,6 +14,7 @@ import json
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -84,7 +85,7 @@ class WorkspaceManager:
         self._atomic_write(path, pack.model_dump_json(indent=2))
         return path
 
-    def write_paper_state(self, name: str, state: dict[str, object]) -> Path:
+    def write_paper_state(self, name: str, state: dict[str, Any]) -> Path:
         path = self.paper / f"{_slug(name)}.json"
         self._atomic_write(path, json.dumps(state, indent=2, sort_keys=True))
         return path
@@ -96,7 +97,7 @@ class WorkspaceManager:
             for p in sorted(self.strategies.glob("*.yaml"))
         ]
 
-    def read_paper_state(self, name: str) -> dict[str, object] | None:
+    def read_paper_state(self, name: str) -> dict[str, Any] | None:
         path = self.paper / f"{_slug(name)}.json"
         if not path.exists():
             return None

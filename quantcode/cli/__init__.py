@@ -3,8 +3,8 @@ render with rich. NO business logic here (it belongs in pipeline/)."""
 
 from __future__ import annotations
 
-import re
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -546,7 +546,7 @@ def strategy(
 @app.command()
 def check(
     target: str = typer.Argument("runs/latest", help="Run id, runs/latest, or latest."),
-    strategy_name: Optional[str] = typer.Option(None, "--strategy", "-s", help="Check one strategy."),
+    strategy_name: str | None = typer.Option(None, "--strategy", "-s", help="Check one strategy."),
     papers: int = typer.Option(3, help="Number of arXiv papers to fetch per strategy."),
     news: int = typer.Option(4, help="Number of Google News items to fetch per strategy."),
     learn: bool = typer.Option(False, "--learn", help="Derive lessons and offer one approved re-test round."),
@@ -584,7 +584,7 @@ def iterate(
 def live(
     target: str = typer.Argument("runs/latest", help="Run id, runs/latest, or latest."),
     paper: bool = typer.Option(False, "--paper", help="Paper-trading only."),
-    strategy_name: Optional[str] = typer.Option(None, "--strategy", "-s", help="Paper-trade one strategy."),
+    strategy_name: str | None = typer.Option(None, "--strategy", "-s", help="Paper-trade one strategy."),
     starting_cash: float = typer.Option(100000.0, help="Starting paper cash for a new book."),
     reset: bool = typer.Option(False, help="Reset the saved paper portfolio for this strategy."),
 ) -> None:
