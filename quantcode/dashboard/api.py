@@ -593,14 +593,13 @@ def _run_command_job(job_id: str, payload: dict[str, Any]) -> None:
             iteration_note: str | None = None
             if request.command != "iterate":
                 working_spec = spec
-            elif request.adjustments is not None:
-                working_spec = _apply_adjustments(spec, request.adjustments)
-                iteration_note = "applied your parameter adjustments"
             else:
-                # no explicit edits -> auto-revise from a baseline backtest so Iterate always
-                # explores a new config (otherwise it would rerun the identical spec).
-                auto_adj, iteration_note = _auto_adjust(spec, run_backtest(spec))
-                working_spec = _apply_adjustments(spec, auto_adj)
+                # carry forward the prior round's params (GUI "iterate again" sends them as
+                # adjustments), then auto-revise ONE step from there — so every iteration
+                # explores a NEW config instead of rerunning the same saved spec.
+                base = _apply_adjustments(spec, request.adjustments)
+                auto_adj, iteration_note = _auto_adjust(base, run_backtest(base))
+                working_spec = _apply_adjustments(base, auto_adj)
 
             if request.command in {"check", "iterate"}:
                 round_no = 2 if request.command == "iterate" else 1

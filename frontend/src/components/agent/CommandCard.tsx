@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Check, Loader2, Play } from "lucide-react";
 
 import { api } from "@/lib/api";
-import type { AgentCommandJob, AgentCommandRequest } from "@/types";
+import type { AgentCommandJob, AgentCommandRequest, StrategyAdjustments } from "@/types";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -67,11 +67,15 @@ export function CommandCard({
   const [objective, setObjective] = useState(request.objective ?? "");
   const isStrategy = request.command === "strategy";
 
-  const launch = async () => {
+  const launch = async (adjustments?: StrategyAdjustments) => {
     setPhase("running");
     setError(null);
     try {
-      const payload = isStrategy ? { ...request, objective: objective.trim() || request.objective } : request;
+      const payload = isStrategy
+        ? { ...request, objective: objective.trim() || request.objective }
+        : adjustments
+          ? { ...request, adjustments }
+          : request;
       const { job_id } = await api.command(payload);
       for (let n = 0; n < 180; n++) {
         const next = await api.commandJob(job_id);
@@ -132,7 +136,7 @@ export function CommandCard({
           run this command?
           <button
             type="button"
-            onClick={launch}
+            onClick={() => launch()}
             className="rounded border border-foreground/40 bg-foreground/[0.06] px-2 py-0.5 text-foreground hover:bg-foreground/10"
           >
             confirm
@@ -180,14 +184,30 @@ export function CommandCard({
               )}
             </div>
           )}
-          {runLink(job) && (
-            <Link
-              href={runLink(job)!}
-              className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-foreground transition-colors hover:bg-foreground/[0.04]"
-            >
-              Open run
-            </Link>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {job.result?.command === "iterate" && job.result.adjusted_spec && (
+              <button
+                type="button"
+                onClick={() =>
+                  launch({
+                    max_holding_days: job.result?.adjusted_spec?.risk_rules?.max_holding_days ?? null,
+                    rebalance_frequency: job.result?.adjusted_spec?.portfolio_rules?.rebalance_frequency ?? null,
+                  })
+                }
+                className="inline-flex items-center gap-1.5 rounded border border-border bg-foreground/[0.06] px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-foreground transition-colors hover:bg-foreground/10"
+              >
+                ↻ Iterate again
+              </button>
+            )}
+            {runLink(job) && (
+              <Link
+                href={runLink(job)!}
+                className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-foreground transition-colors hover:bg-foreground/[0.04]"
+              >
+                Open run
+              </Link>
+            )}
+          </div>
         </div>
       )}
 

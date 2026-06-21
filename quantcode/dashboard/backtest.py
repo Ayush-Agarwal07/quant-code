@@ -131,7 +131,7 @@ def _fetch_yahoo(ticker: str) -> list[tuple[str, float]] | None:
     return out or None
 
 
-def _synthetic(ticker: str, n: int = 320) -> list[tuple[str, float]]:
+def _synthetic(ticker: str, n: int = 1400) -> list[tuple[str, float]]:
     """Deterministic per-ticker walk (seeded by name) — only used when no live data."""
     seed = sum(ord(ch) for ch in ticker) * 2654435761 & 0xFFFFFFFF
     drift = 0.0003 + (seed % 1000) / 1_000_000
@@ -194,6 +194,10 @@ def _std(xs: list[float]) -> float:
 
 # --------------------------------------------------------------------------- the backtest
 _STEP = {"daily": 1, "weekly": 5, "monthly": 21}
+# Per-side transaction cost (liquid US equities ~10bps). Charged round-trip on the fraction of
+# the book that rotates each rebalance — a costless backtest reports an unrealistically high Sharpe.
+_COST_PER_SIDE = 0.001
+_WINDOW = 1300  # ~5 trading years (was ~1yr): more rebalance periods -> less noisy Sharpe.
 
 
 def _prepare_inputs(spec: StrategySpec) -> dict[str, Any]:
@@ -218,7 +222,7 @@ def _prepare_inputs(spec: StrategySpec) -> dict[str, Any]:
         source = "simulated"
 
     common = set.intersection(*[{d for d, _ in s} for s in series.values()])
-    dates = sorted(common)[-260:]
+    dates = sorted(common)[-_WINDOW:]
     closes = {tk: [dict(s)[d] for d in dates] for tk, s in series.items()}
 
     feature = spec.ranking_rule.feature if spec.ranking_rule else (
@@ -243,7 +247,9 @@ def _prepare_inputs(spec: StrategySpec) -> dict[str, Any]:
             + (" — approximated by a return_20d proxy (only closes fetched). " if proxied else ", ")
             + f"equal weight, {spec.portfolio_rules.rebalance_frequency} rebalance "
             f"over {len(series)} names. "
-            + ("Real EOD closes." if executed else "SIMULATED prices — no live market data reachable from the server.")
+            + ("Real EOD closes. " if executed else "SIMULATED prices — no live data reachable. ")
+            + "~10bps/side costs modeled. Proxy backtest on a curated mega-cap universe — "
+            "Sharpe is optimistic (survivorship/selection bias), not a live edge."
         ),
         "universe": list(series.keys()),
     }
@@ -262,6 +268,7 @@ def run_backtest(spec: StrategySpec) -> BacktestResult:
     rets: list[float] = []
     v = 100.0
     start_i = 60  # warm-up for lookbacks
+    prev_picks: set[str] = set()
     for i in range(start_i, len(dates) - step, step):
         ranked = []
         for tk, cs in closes.items():
@@ -276,6 +283,10 @@ def run_backtest(spec: StrategySpec) -> BacktestResult:
         if not fwd:
             continue
         period_ret = sum(fwd) / len(fwd)  # equal weight
+        # transaction cost: round-trip on the fraction of the book that rotated this rebalance
+        rotated = len(set(picks) - prev_picks) / len(picks)
+        period_ret -= rotated * 2 * _COST_PER_SIDE
+        prev_picks = set(picks)
         rets.append(period_ret)
         v *= 1 + period_ret
         equity.append(EquityPoint(t=len(equity), date=dates[i + step], equity=round(v, 2)))
@@ -293,7 +304,7 @@ def run_backtest(spec: StrategySpec) -> BacktestResult:
         ),
         equity=equity,
         note=data["note"],
-        **_stats(rets, equity),
+        **_stats(rets, equity, step),
     )
 
 
@@ -353,18 +364,20 @@ def _asset_tag(universe: str) -> str:
     return "EQUITY"
 
 
-def _stats(rets: list[float], equity: list[EquityPoint]) -> dict[str, Any]:
+def _stats(rets: list[float], equity: list[EquityPoint], step: int) -> dict[str, Any]:
     v = [p.equity for p in equity]
-    ann = {"daily": 252, "weekly": 52, "monthly": 12}
+    # annualize by the ACTUAL rebalance cadence (~252 trading days/yr), not a fixed weekly
+    # factor — otherwise monthly strategies were over-annualized by ~sqrt(52/12)≈2.1x (the
+    # "Sharpe 5.6" bug). daily(step1)->sqrt252, weekly(5)->sqrt~50, monthly(21)->sqrt12.
+    ann = math.sqrt(252 / step) if step > 0 else 1.0
     sd = _std(rets)
     mean = sum(rets) / len(rets) if rets else 0.0
-    sharpe = (mean / sd * math.sqrt(52)) if sd else 0.0  # weekly-ish annualization
+    sharpe = (mean / sd * ann) if sd else 0.0
     peak = v[0] if v else 100.0
     max_dd = 0.0
     for x in v:
         peak = max(peak, x)
         max_dd = min(max_dd, x / peak - 1)
-    del ann
     return {
         "total_return": (v[-1] / v[0] - 1) if v else 0.0,
         "sharpe": round(sharpe, 2),
