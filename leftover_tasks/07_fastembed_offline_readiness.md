@@ -1,6 +1,12 @@
 # 07 — fastembed / tokenizer pre-warm for offline stage use
 
-**Status:** OPEN. **Priority:** low. **Effort:** XS.
+**Status:** DONE (2026-06-20 — single `quantcode warmup` command). **Priority:** low. **Effort:** XS.
+
+**What shipped:** `quantcode warmup` (`cli/__init__.py`) pre-pulls BOTH the bge tokenizer
+(`warm_tokenizer_cache()`) and the fastembed BGE model (`using_real_model()` constructs/downloads
+it) in one online run, then prints a readiness table and exits non-zero if either is still on a
+fallback. Verified: both report ✓ and an offline `demo` then shows real embeddings + MEASURED
+compaction tokens. Replaces the two manual one-liners with one stage-prep command.
 
 ## Why it matters
 Real semantic vector search (the Redis "beyond caching" proof) needs the fastembed BGE model

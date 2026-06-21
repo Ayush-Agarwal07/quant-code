@@ -59,11 +59,11 @@ export function ApiDownState({
         <>
           {status === 404
             ? "The API responded but has no runs yet. "
-            : "Could not reach the QuantCode dashboard API. "}
-          Start it with{" "}
-          <span className="text-foreground">quantcode dashboard</span> (port 8000), then
-          reload. Override the origin with{" "}
-          <span className="text-foreground">NEXT_PUBLIC_API_URL</span>.
+            : "Could not load the QuantCode dashboard data. "}
+          From the repo root, generate local demo data with{" "}
+          <span className="text-foreground">.venv/bin/quantcode demo</span>, then reload.
+          Set <span className="text-foreground">NEXT_PUBLIC_API_URL</span> only when
+          proxying to an external API.
         </>
       }
     />

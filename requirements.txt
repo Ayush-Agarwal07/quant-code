@@ -1,0 +1,4 @@
+# ponytail: deps live in pyproject.toml (single source of truth); install the project
+# editable so requirements.txt never drifts from it. `pip install -r requirements.txt`.
+# Add extras when needed, e.g.  -e .[dev]  or  -e .[llm,browser]
+-e .

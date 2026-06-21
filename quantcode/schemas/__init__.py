@@ -309,6 +309,10 @@ class TraceEvent(ResearchArtifact):
     status: Literal["success", "failed", "skipped"]
     input_summary: str = ""
     output_summary: str = ""
+    # Full serialized output — the context an uncompacted agent would carry forward. This is
+    # the honest `tokens_before` basis for compaction (D7); `output_summary` is the one-line
+    # UI/lesson form. Empty for failed/skipped steps.
+    output_detail: str = ""
     duration_ms: float | None = None
     tokens_in: int | None = None
     tokens_out: int | None = None

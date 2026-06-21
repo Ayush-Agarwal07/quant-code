@@ -74,6 +74,36 @@ def init() -> None:
 
 
 @app.command()
+def warmup() -> None:
+    """Pre-pull the BGE model + tokenizer into the local cache (run ONCE, online, before going
+    offline). Afterwards an offline `demo` uses real semantic embeddings and MEASURED token
+    counts instead of the hash-embedding / token-estimate fallbacks (task 07; D3/D7)."""
+    from quantcode.compaction.tokenizer import warm_tokenizer_cache
+    from quantcode.memory._embeddings import using_real_model
+
+    console.print("[dim]warming caches (downloads ~50MB on first run)…[/dim]")
+    tokenizer_ok = warm_tokenizer_cache()
+    embeddings_ok = using_real_model()  # constructs/downloads the model online, else False
+
+    table = Table(title="QuantCode warmup — offline readiness")
+    table.add_column("cache")
+    table.add_column("status")
+    table.add_row(
+        "compaction tokenizer (bge)",
+        "[green]MEASURED ✓[/green]" if tokenizer_ok else "[red]estimate fallback ✗[/red]",
+    )
+    table.add_row(
+        "semantic embeddings (fastembed bge)",
+        "[green]real model ✓[/green]" if embeddings_ok else "[red]hash fallback ✗[/red]",
+    )
+    console.print(table)
+    if not (tokenizer_ok and embeddings_ok):
+        console.print("[yellow]not fully warmed — check network, then re-run warmup.[/yellow]")
+        raise typer.Exit(1)
+    console.print("[green]warm — offline demo will use real embeddings + measured tokens.[/green]")
+
+
+@app.command()
 def research(
     objective: str,
     promote: bool = typer.Option(False, help="Promote lessons to Tier 3 (HITL approval)."),

@@ -86,5 +86,14 @@ junk = Lesson(lesson_id="junk", text="   ", kind="warning", source_run_id="run_0
 res = mem.curator.curate([junk], run_id="run_002", approved=True)
 assert res.rejected and not res.promoted, "blank lesson must be rejected"
 
+# signal floor: a low-confidence generic lesson is never promoted, even with approval
+weak = Lesson(
+    lesson_id="weak", text="[StrategyWriterAgent] 3 item(s)", kind="pattern",
+    source_run_id="run_002", confidence=0.4,
+)
+res = mem.curator.curate([weak], run_id="run_002", approved=True)
+assert not res.promoted, "low-confidence lesson must not reach Tier 3"
+assert mem.semantic.read_lesson("weak") is None, "low-signal lesson must NOT be written"
+
 print("memory OK — tier1 trace, tier2 episode, tier3 vector search, HITL-gated promotion "
       f"(backend={mem.backend_name})")
