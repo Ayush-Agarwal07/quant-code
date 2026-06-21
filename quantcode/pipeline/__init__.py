@@ -9,9 +9,12 @@ compact (ResearchTrace Compiler) → curate (Tier 2 episode + HITL-gated Tier 3 
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable
 from typing import Any
+
+from pydantic import BaseModel
 
 from quantcode.agents import (
     DataFeasibilityAgent,
@@ -60,18 +63,21 @@ class _Stepper:
         try:
             out = fn()
         except Exception as exc:
-            self._record(name, "failed", "", str(exc), t0)
+            self._record(name, "failed", "", "", str(exc), t0)
             raise
-        self._record(name, "success", _summarize(out), None, t0)
+        self._record(name, "success", _summarize(out), _detail(out), None, t0)
         return out
 
-    def _record(self, name: str, status: str, summary: str, error: str | None, t0: float) -> None:
+    def _record(
+        self, name: str, status: str, summary: str, detail: str, error: str | None, t0: float
+    ) -> None:
         ev = TraceEvent(
             run_id=self._run_id,
             step=len(self._trace) + 1,
             agent_name=name,
             status=status,  # type: ignore[arg-type]  # "success"|"failed" match the Literal
             output_summary=summary,
+            output_detail=detail,
             duration_ms=(time.perf_counter() - t0) * 1000,
             error=error,
         )
@@ -94,6 +100,18 @@ def _summarize(out: Any) -> str:
 def _critique_summary(c: StrategyCritique) -> str:
     risks = "; ".join(c.leakage_risks + c.major_issues)
     return f"{c.strategy_name}: {c.verdict}" + (f" — {risks}" if risks else "")
+
+
+def _detail(out: Any) -> str:
+    """Full serialized step output as a VALID JSON array — the real context an uncompacted
+    agent would carry forward (the honest `tokens_before` basis) and the structured source
+    the compiler extracts lessons from. ponytail: pydantic JSON is a faithful proxy for what
+    the output occupies in context; the array stays parseable for extractive compaction."""
+    items = out if isinstance(out, list) else [out]
+    dumps = [
+        x.model_dump_json() if isinstance(x, BaseModel) else json.dumps(str(x)) for x in items
+    ]
+    return "[" + ", ".join(dumps) + "]"
 
 
 def run_research(
