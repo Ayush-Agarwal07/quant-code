@@ -20,12 +20,13 @@ feasibility and validation gates can become structured strategy specifications.
 - A validation gate before YAML writing
 - A Redis-ready memory architecture with working traces, episodes, and semantic lessons
 - A compaction layer, the ResearchTrace Compiler, for turning long traces into reusable context
+- A terminal-first backtest-learning loop and local paper portfolio snapshots
 
 ## What It Is Not
 
 - Not a trading bot or live trading system
 - Not financial advice or a source of trade recommendations
-- Not a broker or paper-trading integration
+- Not a broker integration
 - Not proof that any strategy works
 - Not a full backtesting platform yet
 
@@ -64,11 +65,15 @@ changes behavior. The panel prints `memory backend: memory` (offline fallback).
 ```bash
 .venv/bin/quantcode strategy
 .venv/bin/quantcode check
+.venv/bin/quantcode check --learn
+.venv/bin/quantcode live runs/latest --paper --strategy short_horizon_momentum
 ```
 
 `strategy` runs the full research pipeline and writes strategy YAML + run artifacts.
 `check` runs the keyless EOD backtest for the latest run and pulls relevant arXiv papers
-plus recent Google News. To check one strategy from a specific run:
+plus recent Google News. `check --learn` adds one automatic backtest-learning round and one
+explicitly approved rerun. `live --paper` writes a local paper portfolio from the latest EOD
+signal snapshot. To check one strategy from a specific run:
 
 ```bash
 .venv/bin/quantcode check run_025 --strategy "Post-Earnings Announcement Drift Momentum"
@@ -81,13 +86,16 @@ QuantCode is meant to be usable from the terminal end to end. The high-level flo
 ```bash
 .venv/bin/quantcode strategy "Find short-horizon underreaction strategies"
 .venv/bin/quantcode check runs/latest
+.venv/bin/quantcode check runs/latest --learn
 ```
 
 | Command | Purpose |
 |---|---|
 | `quantcode init` | Create workspace dirs and a starter `.env` without overwriting an existing one. |
 | `quantcode strategy [objective]` | Create strategy specs from an objective using the full agent pipeline. Writes run JSON, Markdown report, context pack, and strategy YAML. |
-| `quantcode check [run_id]` | Backtest strategy specs from a run and pull relevant arXiv papers + Google News. Defaults to `runs/latest`. |
+| `quantcode check [run_id] [--learn]` | Backtest strategy specs from a run, pull relevant arXiv papers + Google News, and optionally derive backtest lessons. Defaults to `runs/latest`. |
+| `quantcode iterate [run_id] --strategy NAME` | Run one explicit human-approved backtest iteration for a strategy, optionally after parameter edits. |
+| `quantcode live [run_id] --paper --strategy NAME` | Build and persist a local paper portfolio from the latest EOD signal snapshot for one strategy. |
 | `quantcode research "<objective>"` | Lower-level pipeline command used by `strategy`; writes the same run artifacts. |
 | `quantcode inspect [runs/latest]` | Print a compact summary of a saved run. |
 | `quantcode compact [runs/latest] --budget 1000` | Re-run the ResearchTrace Compiler over a run trace at a token budget. |
@@ -109,11 +117,20 @@ Useful examples:
 # Backtest every strategy in the latest run and fetch papers/news.
 .venv/bin/quantcode check
 
+# Add one automatic backtest-learning round, then choose stop/iterate/adjust.
+.venv/bin/quantcode check runs/latest --learn
+
 # Check one strategy from one run.
 .venv/bin/quantcode check run_025 --strategy "Post-Earnings Announcement Drift Momentum"
 
 # Limit source fetches for a faster check.
 .venv/bin/quantcode check runs/latest --papers 1 --news 1
+
+# Run one explicit approved re-test round.
+.venv/bin/quantcode iterate runs/latest --strategy "Post-Earnings Announcement Drift Momentum"
+
+# Generate paper orders and persist a local paper book.
+.venv/bin/quantcode live runs/latest --paper --strategy short_horizon_momentum
 
 # Inspect and compact saved artifacts.
 .venv/bin/quantcode inspect runs/latest
@@ -121,7 +138,8 @@ Useful examples:
 ```
 
 `check` is an evaluation aid, not deployment. It uses keyless EOD prices when reachable and
-prints a labelled simulated fallback if live price data is unavailable.
+prints a labelled simulated fallback if live price data is unavailable. `live --paper` uses the
+same EOD/simulated boundary and never submits real orders.
 
 ### 3. Real Redis memory + vector search (Docker)
 
@@ -236,6 +254,8 @@ workspace/
     run_001.json
   memory/
     context_pack_001.json
+  paper/
+    short_horizon_momentum.json
   reports/
     run_001.md
 ```
@@ -250,5 +270,6 @@ workspace/
 ## Disclaimer
 
 This project is for research and educational purposes only. It does not provide financial advice,
-trade recommendations, or live execution. Backtests can be misleading and do not guarantee future
-performance. The current architecture intentionally keeps execution and brokerage out of scope.
+trade recommendations, or real execution. Backtests can be misleading and do not guarantee future
+performance. The current architecture intentionally keeps broker integration out of scope; the
+paper portfolio surface is local simulation only.
