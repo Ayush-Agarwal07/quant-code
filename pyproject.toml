@@ -25,10 +25,10 @@ dev = [
 ]
 
 [project.scripts]
-qf = "quant_code.cli:app"
+quantcode = "quantcode.cli:app"
 
 [tool.flit.module]
-name = "quant_code"
+name = "quantcode"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

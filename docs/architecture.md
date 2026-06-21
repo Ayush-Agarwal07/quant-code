@@ -1,5 +1,8 @@
 # Architecture
 
+> **Note:** The original implementation now lives in `deprecated/` (formerly `quant_code/`) and is
+> kept for reference only. New work lives in `quantcode/`, structured per this document.
+
 ## Product Identity
 
 **QuantCode** is Claude Code for systematic strategy research: a local agent that reads a quant
