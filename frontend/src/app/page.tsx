@@ -521,6 +521,7 @@ function ChatPanel({
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const idRef = useRef(0);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const replacePending = (id: number, msg: Message) =>
     setMessages((m) => m.map((x) => (x.id === id ? msg : x)));
@@ -528,6 +529,12 @@ function ChatPanel({
   const proposeCommand = (title: string, detail: string, request: AgentCommandRequest) => {
     const id = idRef.current++;
     setMessages((m) => [...m, { id, role: "assistant", command: { title, detail, request } }]);
+  };
+
+  // Drop a suggestion into the input (don't send) so the user can edit then hit enter.
+  const populatePrompt = (text: string) => {
+    setDraft(text);
+    inputRef.current?.focus();
   };
 
   const send = async (raw: string) => {
@@ -590,18 +597,18 @@ function ChatPanel({
           <Pill tone={provider === "mock" ? "muted" : "good"}>{provider}</Pill>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-2 border-b border-border px-4 py-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 border-b border-border px-4 py-3">
         {commandPresets({ runId: packet.run_id, strategy: spec }).map((preset) => (
           <button
             key={`${preset.title}-${preset.request.command}`}
             type="button"
             onClick={() => proposeCommand(preset.title, preset.detail, preset.request)}
-            className="rounded border border-border bg-background px-3 py-2 text-left transition-colors hover:border-foreground/30"
+            className="min-w-0 rounded border border-border bg-background px-3 py-2 text-left transition-colors hover:border-foreground/30"
           >
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-foreground">
+            <p className="break-words font-mono text-[10px] font-semibold uppercase tracking-widest text-foreground">
               {preset.title}
             </p>
-            <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{preset.detail}</p>
+            <p className="mt-1 break-words text-[12px] leading-relaxed text-muted-foreground">{preset.detail}</p>
           </button>
         ))}
       </div>
@@ -635,7 +642,7 @@ function ChatPanel({
             ) : "command" in m ? (
               <CommandBubble key={m.id} title={m.command.title} detail={m.command.detail} request={m.command.request} />
             ) : (
-              <AssistantBubble key={m.id} reply={m.reply} provider={m.provider} />
+              <AssistantBubble key={m.id} reply={m.reply} provider={m.provider} onUseSuggestion={populatePrompt} />
             )
           )
         )}
@@ -648,10 +655,17 @@ function ChatPanel({
         className="flex shrink-0 items-end gap-2 border-t border-border bg-card p-3"
       >
         <textarea
+          ref={inputRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              send(draft);
+            }
+          }}
           rows={1}
-          placeholder="Ask about data, risks, or test design..."
+          placeholder="Ask about data, risks, or test design... (Enter to send, Shift+Enter for newline)"
           className="max-h-28 min-h-[38px] min-w-0 flex-1 resize-none rounded border border-border bg-background px-3 py-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:border-foreground/40 focus:ring-1 focus:ring-ring"
         />
         <button
@@ -1074,7 +1088,15 @@ function PendingBubble() {
   );
 }
 
-function AssistantBubble({ reply, provider }: { reply: Reply; provider: string }) {
+function AssistantBubble({
+  reply,
+  provider,
+  onUseSuggestion,
+}: {
+  reply: Reply;
+  provider: string;
+  onUseSuggestion: (text: string) => void;
+}) {
   return (
     <div className="flex gap-2">
       <BotAvatar />
@@ -1087,9 +1109,14 @@ function AssistantBubble({ reply, provider }: { reply: Reply; provider: string }
         <ReplySection title="Feasibility" items={reply.feasibility} />
         <ReplySection title="Risks" items={reply.risks} />
         {reply.nextRun !== "—" && (
-          <p className="break-words rounded border border-border bg-background px-3 py-2 font-mono text-[11px] text-foreground/90">
+          <button
+            type="button"
+            onClick={() => onUseSuggestion(reply.nextRun)}
+            title="Use as prompt"
+            className="block w-full break-words rounded border border-border bg-background px-3 py-2 text-left font-mono text-[11px] text-foreground/90 transition-colors hover:border-foreground/30 hover:bg-foreground/[0.03] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
             {reply.nextRun}
-          </p>
+          </button>
         )}
       </div>
     </div>
@@ -2590,6 +2617,12 @@ function ExpandedAgentActivity({
                 <textarea
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                      event.preventDefault();
+                      send();
+                    }
+                  }}
                   rows={1}
                   placeholder={`Message ${active === "all-activity" ? "#all-activity" : `@${active}`}...`}
                   className="max-h-28 min-h-[34px] min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
