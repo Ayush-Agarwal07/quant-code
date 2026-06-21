@@ -143,6 +143,7 @@ class MarketAlert(BaseModel):
     tag: Literal["FOMC", "FX", "CRYPTO", "EQUITY", "RATES", "MACRO"]
     headline: str
     strategy_tag: str
+    url: str | None = None  # set for real news alerts; None for derived/offline ones
 
 
 class CuratedReading(BaseModel):
@@ -284,7 +285,7 @@ def _whys_prompt(items: list[ReadingItem], spec: StrategySpec) -> str:
 def _alerts_from_news(news: list[dict[str, Any]], spec: StrategySpec) -> list[MarketAlert]:
     tag = _alert_tag(spec.universe)
     return [
-        MarketAlert(tag=tag, headline=n["title"], strategy_tag=spec.strategy_name)
+        MarketAlert(tag=tag, headline=n["title"], strategy_tag=spec.strategy_name, url=n.get("url"))
         for n in news
     ]
 

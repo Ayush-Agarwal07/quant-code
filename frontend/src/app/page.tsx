@@ -2142,22 +2142,22 @@ function AgentMessageRow({
     <button
       type="button"
       onClick={onSelect}
-      className={`flex w-full gap-3 rounded p-1 text-left transition-colors hover:bg-foreground/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+      className={`flex w-full gap-2.5 rounded border border-transparent px-2 py-2 text-left transition-colors hover:border-border/70 hover:bg-foreground/[0.025] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
         mine ? "justify-end" : ""
-      } ${selected ? "bg-foreground/[0.05]" : ""}`}
+      } ${selected ? "border-border bg-foreground/[0.045]" : ""}`}
     >
       {!mine && (
-        <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-foreground/[0.06] font-mono text-[10px] font-semibold text-foreground">
+        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded border border-border bg-background font-mono text-[10px] font-semibold text-foreground/90">
           {agentInitials(message.agent)}
         </div>
       )}
-      <div className={`min-w-0 max-w-[780px] ${mine ? "text-right" : ""}`}>
-        <div className={`mb-1 flex items-baseline gap-2 ${mine ? "justify-end" : ""}`}>
-          <span className="font-mono text-[11px] font-semibold text-foreground">
+      <div className={`min-w-0 ${mine ? "max-w-[720px] text-right" : "max-w-[840px] flex-1"}`}>
+        <div className={`mb-1 flex min-w-0 items-baseline gap-2 ${mine ? "justify-end" : ""}`}>
+          <span className="min-w-0 truncate font-mono text-[11px] font-semibold text-foreground">
             {mine ? "You" : message.agent}
           </span>
           {message.meta && (
-            <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+            <span className="shrink-0 font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
               {message.meta}
             </span>
           )}
@@ -2167,7 +2167,7 @@ function AgentMessageRow({
             mine
               ? "border-foreground/20 bg-foreground/[0.08] text-foreground"
               : message.role === "log"
-                ? "border-border bg-background text-foreground/80"
+                ? "border-border/70 bg-background/65 text-foreground/80"
                 : "border-border bg-card text-foreground"
           }`}
         >
@@ -2242,14 +2242,14 @@ function LogDetailPanel({
   onCopy: () => void;
 }) {
   return (
-    <aside className="flex min-h-0 flex-col border-t border-border bg-background/45 xl:border-l xl:border-t-0">
-      <div className="border-b border-border px-4 py-3">
+    <aside className="flex min-h-0 flex-col border-t border-border bg-background/40 xl:border-l xl:border-t-0">
+      <div className="border-b border-border px-3 py-3">
         <div className="flex items-center justify-between gap-2">
-          <Label>Inspector</Label>
+          <Label>Run detail</Label>
           <button
             type="button"
             onClick={onCopy}
-            className="inline-flex h-7 items-center gap-1.5 rounded border border-border px-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="inline-flex h-7 items-center gap-1.5 rounded border border-border px-2 font-mono text-[9px] uppercase tracking-widest text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <Copy className="h-3.5 w-3.5" />
             Copy
@@ -2257,35 +2257,25 @@ function LogDetailPanel({
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-px border-b border-border bg-border">
-        <div className="bg-card p-3">
-          <div className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">Logs</div>
-          <div className="mt-1 font-mono text-sm text-foreground">{stats.logs}</div>
-        </div>
-        <div className="bg-card p-3">
-          <div className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">Failed</div>
-          <div className={`mt-1 font-mono text-sm ${stats.failed ? "text-red-400" : "text-foreground"}`}>
-            {stats.failed}
-          </div>
-        </div>
-        <div className="bg-card p-3">
-          <div className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">Time</div>
-          <div className="mt-1 font-mono text-sm text-foreground">{stats.duration.toFixed(0)}ms</div>
-        </div>
+      <div className="grid grid-cols-2 gap-px border-b border-border bg-border">
+        <DetailMetric label="Logs" value={String(stats.logs)} flat />
+        <DetailMetric label="Success" value={String(stats.success)} flat />
+        <DetailMetric label="Failed" value={String(stats.failed)} tone={stats.failed ? "bad" : undefined} flat />
+        <DetailMetric label="Time" value={`${stats.duration.toFixed(0)}ms`} flat />
       </div>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
         {!message ? (
           <p className="text-[12.5px] leading-relaxed text-muted-foreground">
-            Select a log message to inspect its event payload, validation status, token usage, and raw summaries.
+            Select a log message to inspect payload details, token usage, and raw summaries.
           </p>
         ) : (
           <>
             <div>
-              <div className="mb-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              <div className="mb-2 font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
                 Selected
               </div>
-              <div className="rounded border border-border bg-card p-3">
+              <div className="rounded border border-border bg-card/80 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate font-mono text-[12px] font-semibold text-foreground">
                     {message.agent}
@@ -2306,8 +2296,8 @@ function LogDetailPanel({
             </div>
 
             {message.trace && (
-              <div className="rounded border border-border bg-card p-3">
-                <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              <div className="rounded border border-border bg-card/80 p-3">
+                <div className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
                   Trace schema
                 </div>
                 <p className="mt-2 font-mono text-[12px] text-foreground">
@@ -2333,11 +2323,23 @@ function LogDetailPanel({
   );
 }
 
-function DetailMetric({ label, value }: { label: string; value: string }) {
+function DetailMetric({
+  label,
+  value,
+  tone,
+  flat = false,
+}: {
+  label: string;
+  value: string;
+  tone?: "bad";
+  flat?: boolean;
+}) {
   return (
-    <div className="rounded border border-border bg-card p-3">
+    <div className={`${flat ? "bg-card p-3" : "rounded border border-border bg-card/80 p-3"}`}>
       <div className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">{label}</div>
-      <div className="mt-1 truncate font-mono text-[12px] text-foreground">{value}</div>
+      <div className={`mt-1 truncate font-mono text-[12px] ${tone === "bad" ? "text-red-400" : "text-foreground"}`}>
+        {value}
+      </div>
     </div>
   );
 }
@@ -2407,27 +2409,43 @@ function ExpandedAgentActivity({
   return (
     <>
       <ExpansionBackdrop className="z-[80]" />
-      <div className="fixed inset-x-3 top-14 bottom-3 z-[81] mx-auto max-w-[1900px] overflow-hidden rounded border border-border bg-card text-foreground shadow-2xl lg:inset-x-4 lg:top-16 lg:bottom-5">
-        <div className="grid h-full min-h-0 grid-cols-1 overflow-y-auto lg:grid-cols-[280px_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[280px_minmax(0,1fr)_340px]">
-          <aside className="min-h-0 border-b border-border bg-background/60 lg:border-b-0 lg:border-r">
-            <div className="sticky top-0 z-20 border-b border-border bg-background px-4 py-4 lg:static">
-              <div className="font-mono text-[13px] font-semibold text-foreground">Agent workspace</div>
-              <div className="mt-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+      <div className="fixed inset-x-3 top-14 bottom-3 z-[81] mx-auto max-w-[1760px] overflow-hidden rounded border border-border bg-card text-foreground shadow-2xl lg:inset-x-4 lg:top-16 lg:bottom-5">
+        <div className="grid h-full min-h-0 grid-cols-1 overflow-y-auto lg:grid-cols-[250px_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[250px_minmax(0,1fr)_320px]">
+          <aside className="min-h-0 border-b border-border bg-background/55 lg:border-b-0 lg:border-r">
+            <div className="sticky top-0 z-20 border-b border-border bg-background px-3 py-3 lg:static">
+              <div className="font-mono text-[12px] font-semibold text-foreground">Agent activity</div>
+              <div className="mt-1 truncate font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
                 {runId}
               </div>
+              <div className="mt-3 grid grid-cols-3 gap-px overflow-hidden rounded border border-border bg-border">
+                <div className="bg-card px-2 py-1.5">
+                  <div className="font-mono text-[8px] uppercase tracking-widest text-muted-foreground">Logs</div>
+                  <div className="font-mono text-[11px] text-foreground">{events.length}</div>
+                </div>
+                <div className="bg-card px-2 py-1.5">
+                  <div className="font-mono text-[8px] uppercase tracking-widest text-muted-foreground">Agents</div>
+                  <div className="font-mono text-[11px] text-foreground">{agents.length}</div>
+                </div>
+                <div className="bg-card px-2 py-1.5">
+                  <div className="font-mono text-[8px] uppercase tracking-widest text-muted-foreground">Fail</div>
+                  <div className={`font-mono text-[11px] ${events.some((event) => event.status === "failed") ? "text-red-400" : "text-foreground"}`}>
+                    {events.filter((event) => event.status === "failed").length}
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="max-h-56 overflow-y-auto p-3 lg:max-h-none">
-              <Label className="mb-2 block px-1 text-[10px]">Channels</Label>
+            <div className="max-h-64 overflow-y-auto p-2.5 lg:max-h-none">
+              <Label className="mb-2 block px-1 text-[9px]">Channels</Label>
               <button
                 type="button"
                 onClick={() => {
                   setActive("all-activity");
                   setSelectedMessageId(null);
                 }}
-                className={`mb-1 flex w-full items-center gap-2 rounded px-3 py-2 text-left font-mono text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                className={`mb-1 flex w-full items-center gap-2 rounded border border-transparent px-2.5 py-2 text-left font-mono text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                   active === "all-activity"
-                    ? "bg-foreground/[0.08] text-foreground"
-                    : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
+                    ? "border-border bg-foreground/[0.07] text-foreground"
+                    : "text-muted-foreground hover:border-border/70 hover:bg-foreground/[0.035] hover:text-foreground"
                 }`}
               >
                 <Hash className="h-3.5 w-3.5" />
@@ -2435,7 +2453,7 @@ function ExpandedAgentActivity({
                 <span className="text-[10px] text-muted-foreground">{events.length}</span>
               </button>
 
-              <Label className="mb-2 mt-5 block px-1 text-[10px]">Direct agents</Label>
+              <Label className="mb-2 mt-4 block px-1 text-[9px]">Direct agents</Label>
               <div className="space-y-1">
                 {agents.map((agent) => {
                   const agentMessages = logMessagesForAgent(agent, events, traces);
@@ -2448,10 +2466,10 @@ function ExpandedAgentActivity({
                         setActive(agent);
                         setSelectedMessageId(null);
                       }}
-                      className={`flex w-full min-w-0 items-center gap-2 rounded px-3 py-2 text-left font-mono text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                      className={`flex w-full min-w-0 items-center gap-2 rounded border border-transparent px-2.5 py-2 text-left font-mono text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                         active === agent
-                          ? "bg-foreground/[0.08] text-foreground"
-                          : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
+                          ? "border-border bg-foreground/[0.07] text-foreground"
+                          : "text-muted-foreground hover:border-border/70 hover:bg-foreground/[0.035] hover:text-foreground"
                       }`}
                     >
                       <AtSign className="h-3.5 w-3.5 shrink-0" />
@@ -2471,7 +2489,7 @@ function ExpandedAgentActivity({
           </aside>
 
           <section className="flex min-h-0 flex-col">
-            <div className="flex min-h-[52px] items-center justify-between gap-3 border-b border-border bg-card px-4 py-3">
+            <div className="flex min-h-[50px] items-center justify-between gap-3 border-b border-border bg-card px-3 py-2.5">
               <div className="flex min-w-0 items-center gap-3">
                 {active === "all-activity" ? (
                   <Hash className="h-4 w-4 text-muted-foreground" />
@@ -2479,7 +2497,7 @@ function ExpandedAgentActivity({
                   <AtSign className="h-4 w-4 text-muted-foreground" />
                 )}
                 <div className="min-w-0">
-                  <div className="truncate font-mono text-[14px] font-semibold text-foreground">
+                  <div className="truncate font-mono text-[13px] font-semibold text-foreground">
                     {active}
                   </div>
                   <div className="truncate font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -2490,11 +2508,12 @@ function ExpandedAgentActivity({
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <ToolbarButton onClick={() => copyText(exportText)}>
+                <ToolbarButton onClick={() => copyText(exportText)} className="hidden sm:inline-flex">
                   <Copy className="h-3.5 w-3.5" />
                   Copy
                 </ToolbarButton>
                 <ToolbarButton
+                  className="hidden sm:inline-flex"
                   onClick={() =>
                     downloadText(
                       `${runId}-${active.replace(/[^a-z0-9_-]+/gi, "-")}-logs.txt`,
@@ -2511,23 +2530,23 @@ function ExpandedAgentActivity({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2 border-b border-border bg-background/25 px-3 py-2.5">
               <div className="relative min-w-0 flex-[1_1_220px]">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Search logs, agents, errors..."
-                  className="h-8 w-full rounded border border-border bg-background pl-8 pr-3 font-mono text-[11px] text-foreground outline-none placeholder:text-muted-foreground focus:border-foreground/40 focus:ring-1 focus:ring-ring"
+                  className="h-8 w-full rounded border border-border bg-card pl-8 pr-3 font-mono text-[11px] text-foreground outline-none placeholder:text-muted-foreground focus:border-foreground/40 focus:ring-1 focus:ring-ring"
                 />
               </div>
-              <div className="flex overflow-hidden rounded border border-border bg-background p-1 font-mono text-[10px] uppercase tracking-widest">
+              <div className="flex overflow-hidden rounded border border-border bg-card p-1 font-mono text-[9px] uppercase tracking-widest">
                 {(["all", "success", "failed", "skipped"] as StatusFilter[]).map((status) => (
                   <button
                     key={status}
                     type="button"
                     onClick={() => setStatusFilter(status)}
-                    className={`rounded px-2 py-1 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                    className={`rounded px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                       statusFilter === status
                         ? "bg-foreground/10 text-foreground"
                         : "text-muted-foreground hover:text-foreground"
@@ -2537,15 +2556,17 @@ function ExpandedAgentActivity({
                   </button>
                 ))}
               </div>
-              <div className="ml-auto flex flex-wrap items-center gap-2 font-mono text-[10px] text-muted-foreground">
+              <div className="ml-auto flex flex-wrap items-center gap-2 font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
                 <span>{visibleMessages.length} shown</span>
                 <span>{stats.tokensIn + stats.tokensOut} tokens</span>
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+            <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-3">
               {visibleMessages.length === 0 ? (
-                <p className="text-[12.5px] text-muted-foreground">No logs were emitted for this channel.</p>
+                <div className="rounded border border-border bg-background/60 p-4 text-[12.5px] text-muted-foreground">
+                  No logs match this channel and filter.
+                </div>
               ) : (
                 visibleMessages.map((message) => (
                   <AgentMessageRow
@@ -2563,7 +2584,7 @@ function ExpandedAgentActivity({
                 event.preventDefault();
                 send();
               }}
-              className="shrink-0 border-t border-border bg-card p-3"
+              className="shrink-0 border-t border-border bg-card p-2.5"
             >
               <div className="flex items-end gap-2 rounded border border-border bg-background p-2">
                 <textarea
@@ -2571,7 +2592,7 @@ function ExpandedAgentActivity({
                   onChange={(event) => setDraft(event.target.value)}
                   rows={1}
                   placeholder={`Message ${active === "all-activity" ? "#all-activity" : `@${active}`}...`}
-                  className="max-h-28 min-h-[36px] min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+                  className="max-h-28 min-h-[34px] min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
                 />
                 <button
                   type="submit"
@@ -2643,7 +2664,19 @@ function AlertRow({ alert }: { alert: MarketAlert }) {
           {alert.strategy_tag}
         </span>
       </div>
-      <p className="line-clamp-3 break-words text-[12.5px] leading-snug text-foreground/90">{alert.headline}</p>
+      {alert.url ? (
+        <a
+          href={alert.url}
+          target="_blank"
+          rel="noreferrer"
+          className="line-clamp-3 break-words text-[12.5px] leading-snug text-foreground/90 transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          {alert.headline}
+          <ExternalLink className="ml-1 inline h-3 w-3 align-baseline text-muted-foreground" />
+        </a>
+      ) : (
+        <p className="line-clamp-3 break-words text-[12.5px] leading-snug text-foreground/90">{alert.headline}</p>
+      )}
     </li>
   );
 }

@@ -321,6 +321,7 @@ export interface MarketAlert {
   tag: AlertTag;
   headline: string;
   strategy_tag: string;
+  url?: string | null;
 }
 
 export interface CuratedReading {
