@@ -29,6 +29,117 @@ feasibility and validation gates can become structured strategy specifications.
 - Not proof that any strategy works
 - Not a full backtesting platform yet
 
+## Setup & Run
+
+Everything runs **fully offline by default** (mock LLM + in-memory memory backend) — Redis,
+real embeddings, live web research, and a live LLM are all **opt-in**. Nothing below is
+required to see the core demo.
+
+### Prerequisites
+- Python **3.11+**
+- (optional) **Docker** — only for real Redis Stack
+- (optional) Browserbase + LLM API keys — only for the live paths
+
+### 1. Install
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt   # installs the package (-e .) + deps
+```
+
+`requirements.txt` just installs the project editable, so deps stay defined in `pyproject.toml`.
+The `quantcode` CLI is then on `.venv/bin/quantcode`.
+
+### 2. Run the offline demo (no setup, no server)
+
+```bash
+.venv/bin/quantcode demo
+```
+
+Two scripted runs proving the learning loop: run 2 retrieves a lesson learned in run 1 and
+changes behavior. The panel prints `memory backend: memory` (offline fallback).
+
+### 3. Real Redis memory + vector search (Docker)
+
+Tier 3 semantic memory uses RediSearch vector KNN, which needs **Redis Stack** (not vanilla
+`redis-server`). Full walkthrough: [`redis_implementation.md`](redis_implementation.md).
+
+```bash
+docker run -d --name quantcode-redis -p 6379:6379 -p 8001:8001 redis/redis-stack:latest
+.venv/bin/quantcode demo            # panel now reads  memory backend: redis
+```
+
+Inspect what it wrote (or browse visually in RedisInsight at <http://localhost:8001>):
+
+```bash
+docker exec quantcode-redis redis-cli KEYS 'qc:*'              # trace / episode / lesson keys
+docker exec quantcode-redis redis-cli FT._LIST                 # qc:index:lessons (vector index)
+docker exec quantcode-redis redis-cli TTL qc:run:run_001:trace # Tier 1 expires; Tier 2/3 = -1
+```
+
+Stop/remove when done: `docker stop quantcode-redis && docker rm quantcode-redis`.
+
+### 4. Real embeddings + MEASURED token counts (one-time, online)
+
+```bash
+.venv/bin/quantcode warmup     # pre-pulls the bge model + tokenizer into the local cache
+```
+
+Without this the demo silently uses a hash-embedding fallback + a labeled token *estimate*.
+After warming, compaction reports `(measured)` and semantic search ranks paraphrases properly.
+
+### 5. Explore the pitch surfaces
+
+```bash
+.venv/bin/quantcode compact runs/latest --budget 1000     # ResearchTrace Compiler (Token Company)
+.venv/bin/quantcode memory search "earnings proxy weakness"  # Redis Tier 3 semantic search
+.venv/bin/quantcode benchmarks                            # measured compaction + retrieval metrics
+```
+
+Compaction is extractive (deletion-based, verbatim) and the budget is a hard ceiling — sweep
+`--budget 60` to watch it trade off honestly.
+
+### 6. Live web research via Browserbase (optional · 🧑‍⚖️ spends credits)
+
+```bash
+.venv/bin/python -m pip install -e ".[browser]"
+.venv/bin/playwright install chromium
+```
+
+Put your keys in `.env` (see below), then run a HITL-gated live fetch:
+
+```bash
+.venv/bin/quantcode research-url https://arxiv.org/abs/2105.13727 --confirm
+```
+
+It opens a real Browserbase session (Playwright over CDP), extracts a `PriorArtTheme`, and runs
+the normal pipeline. Without `--confirm` it refuses; it never falls back to plain HTTP.
+
+### 7. Live LLM (optional · 🧑‍⚖️ first real call costs)
+
+Default is a deterministic **mock** provider (stage-safe, reproducible). To use a real provider,
+set `QC_LLM_PROVIDER` + the matching key in `.env`. The first non-mock call is HITL-gated.
+
+### Configuration (`.env`)
+
+Copy `.env.example` to `.env` (it's gitignored) and fill in only what you need:
+
+| Var | Purpose |
+|---|---|
+| `REDIS_URL` | Redis connection (default `redis://localhost:6379/0`) |
+| `QC_MEMORY_BACKEND=memory` | force the offline in-memory backend |
+| `BROWSERBASE_API_KEY` / `BROWSERBASE_PROJECT_ID` | live `research-url` (project id is required) |
+| `QC_LLM_PROVIDER` + provider key | switch off the mock LLM |
+
+### Tests & checks
+
+```bash
+.venv/bin/python -m pip install -e ".[dev]"
+.venv/bin/ruff check quantcode/ && .venv/bin/mypy quantcode/ && .venv/bin/python -m pytest -q
+```
+
+Each module also ships a runnable self-check, e.g. `python -m quantcode.compaction`.
+
 ## Hackathon Architecture Direction
 
 ```text
