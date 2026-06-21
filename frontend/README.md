@@ -29,21 +29,20 @@ npm install
 npm run dev          # http://localhost:3000
 ```
 
-The dashboard needs the QuantCode read-only API running on **port 8000**:
+By default, the dashboard serves a read-only local API from the Next.js app itself.
+Those routes read `../workspace/research_runs/*.json` and `../workspace/memory/*_pack.json`,
+so the local demo does not need a separate backend process.
+
+If no runs exist yet, generate demo data from the repo root:
 
 ```bash
-quantcode dashboard   # serves the FastAPI dashboard backend on :8000
+.venv/bin/quantcode demo
 ```
-
-The frontend proxies all data calls through `/api/backend/*` → the API (see
-`next.config.js`), so there is no CORS setup. If the API is down or has no runs yet,
-every page degrades to a friendly "start the API" state instead of crashing. The
-memory search also handles Redis being absent (it returns an empty result set).
 
 ### Configuration
 
-Set `NEXT_PUBLIC_API_URL` to point at a non-default API origin (defaults to
-`http://localhost:8000`):
+Set `NEXT_PUBLIC_API_URL` only if you want `/api/backend/*` to proxy to an external
+API origin instead of the built-in local workspace API:
 
 ```bash
 cp .env.example .env.local
