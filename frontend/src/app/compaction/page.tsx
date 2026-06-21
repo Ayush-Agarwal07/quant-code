@@ -243,11 +243,14 @@ function CompactionDetail({ pack }: { pack: ContextPack }) {
             title="Lessons in the pack"
             hint={`${pack.lessons.length} lesson id${pack.lessons.length === 1 ? "" : "s"} retained.`}
           />
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-4 space-y-2">
             {pack.lessons.map((id) => (
-              <Pill key={id} tone="muted">
+              <div
+                key={id}
+                className="rounded border border-border px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground break-all"
+              >
                 {id}
-              </Pill>
+              </div>
             ))}
           </div>
         </Card>
