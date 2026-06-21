@@ -395,6 +395,9 @@ export type AgentCommandKind = "strategy" | "check" | "iterate" | "live";
 export interface StrategyAdjustments {
   max_holding_days?: number | null;
   rebalance_frequency?: "daily" | "weekly" | "monthly" | null;
+  ranking_feature?: string | null;
+  ranking_order?: "ascending" | "descending" | null;
+  top_n?: number | null;
 }
 
 export interface AgentCommandRequest {

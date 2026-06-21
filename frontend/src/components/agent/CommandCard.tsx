@@ -75,6 +75,7 @@ export function CommandCard({
   const [objective, setObjective] = useState(request.objective ?? "");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "done" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [manualAdjustments, setManualAdjustments] = useState<StrategyAdjustments>({});
   const isStrategy = request.command === "strategy";
 
   useEffect(() => {
@@ -134,6 +135,12 @@ export function CommandCard({
     if (job?.result?.command !== "iterate") return;
     setSaveState("idle");
     setSaveError(null);
+    setManualAdjustments({
+      rebalance_frequency: job.result.adjusted_spec?.portfolio_rules?.rebalance_frequency ?? null,
+      ranking_feature: job.result.adjusted_spec?.ranking_rule?.feature ?? null,
+      ranking_order: job.result.adjusted_spec?.ranking_rule?.order ?? null,
+      top_n: job.result.adjusted_spec?.ranking_rule?.top_n ?? null,
+    });
   }, [job?.result?.command, job?.result?.backtest, job?.result?.adjusted_spec]);
 
   const saveIteration = async () => {
@@ -248,16 +255,85 @@ export function CommandCard({
               )}
             </div>
           )}
+          {job.result?.command === "iterate" && job.result.adjusted_spec && (
+            <div className="grid grid-cols-2 gap-2">
+              <label className="space-y-1">
+                <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Top N
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  value={manualAdjustments.top_n ?? ""}
+                  onChange={(e) =>
+                    setManualAdjustments((current) => ({
+                      ...current,
+                      top_n: e.target.value ? Number(e.target.value) : null,
+                    }))
+                  }
+                  className="h-9 w-full rounded border border-border bg-background px-2 font-mono text-[12px] text-foreground outline-none focus:border-foreground/40 focus:ring-1 focus:ring-ring"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Rebalance
+                </span>
+                <select
+                  value={manualAdjustments.rebalance_frequency ?? ""}
+                  onChange={(e) =>
+                    setManualAdjustments((current) => ({
+                      ...current,
+                      rebalance_frequency: (e.target.value || null) as StrategyAdjustments["rebalance_frequency"],
+                    }))
+                  }
+                  className="h-9 w-full rounded border border-border bg-background px-2 font-mono text-[12px] text-foreground outline-none focus:border-foreground/40 focus:ring-1 focus:ring-ring"
+                >
+                  <option value="daily">daily</option>
+                  <option value="weekly">weekly</option>
+                  <option value="monthly">monthly</option>
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Rank order
+                </span>
+                <select
+                  value={manualAdjustments.ranking_order ?? ""}
+                  onChange={(e) =>
+                    setManualAdjustments((current) => ({
+                      ...current,
+                      ranking_order: (e.target.value || null) as StrategyAdjustments["ranking_order"],
+                    }))
+                  }
+                  className="h-9 w-full rounded border border-border bg-background px-2 font-mono text-[12px] text-foreground outline-none focus:border-foreground/40 focus:ring-1 focus:ring-ring"
+                >
+                  <option value="descending">descending</option>
+                  <option value="ascending">ascending</option>
+                </select>
+              </label>
+              <label className="col-span-2 space-y-1">
+                <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Ranking feature
+                </span>
+                <input
+                  type="text"
+                  value={manualAdjustments.ranking_feature ?? ""}
+                  onChange={(e) =>
+                    setManualAdjustments((current) => ({
+                      ...current,
+                      ranking_feature: e.target.value || null,
+                    }))
+                  }
+                  className="h-9 w-full rounded border border-border bg-background px-2 font-mono text-[12px] text-foreground outline-none focus:border-foreground/40 focus:ring-1 focus:ring-ring"
+                />
+              </label>
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             {job.result?.command === "iterate" && job.result.adjusted_spec && (
               <button
                 type="button"
-                onClick={() =>
-                  launch({
-                    max_holding_days: job.result?.adjusted_spec?.risk_rules?.max_holding_days ?? null,
-                    rebalance_frequency: job.result?.adjusted_spec?.portfolio_rules?.rebalance_frequency ?? null,
-                  })
-                }
+                onClick={() => launch(manualAdjustments)}
                 className="inline-flex items-center gap-1.5 rounded border border-border bg-foreground/[0.06] px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-foreground transition-colors hover:bg-foreground/10"
               >
                 ↻ Iterate again

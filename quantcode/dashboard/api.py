@@ -26,6 +26,7 @@ from quantcode.schemas import (
     DataFeasibilityReport,
     Lesson,
     QuantResearchPacket,
+    RankingRule,
     StrategyCritique,
     StrategySpec,
 )
@@ -166,6 +167,9 @@ class ReadingRequest(BaseModel):
 class StrategyAdjustments(BaseModel):
     max_holding_days: int | None = None
     rebalance_frequency: Literal["daily", "weekly", "monthly"] | None = None
+    ranking_feature: str | None = None
+    ranking_order: Literal["ascending", "descending"] | None = None
+    top_n: int | None = None
 
 
 class CommandRequest(BaseModel):
@@ -366,13 +370,34 @@ def _apply_adjustments(spec: StrategySpec, adjustments: StrategyAdjustments | No
         return spec
     risk_rules = spec.risk_rules
     portfolio_rules = spec.portfolio_rules
+    ranking_rule = spec.ranking_rule
     if adjustments.max_holding_days is not None:
         risk_rules = risk_rules.model_copy(update={"max_holding_days": adjustments.max_holding_days})
     if adjustments.rebalance_frequency is not None:
         portfolio_rules = portfolio_rules.model_copy(
             update={"rebalance_frequency": adjustments.rebalance_frequency}
         )
-    return spec.model_copy(update={"risk_rules": risk_rules, "portfolio_rules": portfolio_rules})
+    if (
+        adjustments.ranking_feature is not None
+        or adjustments.ranking_order is not None
+        or adjustments.top_n is not None
+    ):
+        base_feature = (
+            ranking_rule.feature
+            if ranking_rule
+            else (spec.entry_rules[0].feature if spec.entry_rules else "return_20d")
+        )
+        base_order = ranking_rule.order if ranking_rule else "descending"
+        base_top = ranking_rule.top_n if ranking_rule and ranking_rule.top_n is not None else 3
+        ranking_rule = RankingRule(
+            feature=(adjustments.ranking_feature or base_feature).strip() or base_feature,
+            order=adjustments.ranking_order or base_order,
+            top_n=adjustments.top_n or base_top,
+            bottom_n=None,
+        )
+    return spec.model_copy(
+        update={"risk_rules": risk_rules, "portfolio_rules": portfolio_rules, "ranking_rule": ranking_rule}
+    )
 
 
 # Rebalance cadence is the only adjustable knob the backtest reacts to, so each step lands on a
