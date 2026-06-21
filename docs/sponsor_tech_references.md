@@ -49,3 +49,5 @@ questions in `../quantcode/memory/` and `../quantcode/browser/`.
 - redis-py vector search — https://redis.io/docs/latest/develop/ai/search-and-query/vectors/
 - Browserbase Python SDK — https://docs.browserbase.com/reference/sdk/python
 - Stagehand — https://docs.browserbase.com/introduction/stagehand
+- Compaction algos : https://devpost.com/software/solace-an-agentic-ai-platform-for-end-to-end-clinical-care
+- Compation algo 2: http://devpost.com/software/distill
