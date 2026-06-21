@@ -10,8 +10,11 @@ import {
   Bot,
   CalendarDays,
   CheckCircle2,
+  ChevronRight,
   Code2,
+  Copy,
   DollarSign,
+  Download,
   ExternalLink,
   FileText,
   FlaskConical,
@@ -19,8 +22,8 @@ import {
   Lightbulb,
   List,
   Loader2,
-  Maximize2,
   Newspaper,
+  Search,
   ScrollText,
   Send,
   Sigma,
@@ -67,13 +70,16 @@ import type {
   ReadingItem,
   ReadingType,
   StrategyRule,
+  StrategyCatalogItem,
   StrategySpec,
+  TraceStatus,
   TraceEvent,
 } from "@/types";
 
 export default function DashboardPage() {
   const latest = useApi((s) => api.latestRun(s), []);
   const overview = useApi((s) => api.overview(s), []);
+  const catalog = useApi((s) => api.strategies(s), []);
 
   if (latest.loading) {
     return (
@@ -89,7 +95,13 @@ export default function DashboardPage() {
       </div>
     );
   }
-  return <Dashboard packet={latest.data} provider={overview.data?.llm_provider ?? "mock"} />;
+  return (
+    <Dashboard
+      packet={latest.data}
+      provider={overview.data?.llm_provider ?? "mock"}
+      catalog={catalog.data ?? []}
+    />
+  );
 }
 
 // Cache reading + backtest per (run, strategy) so re-selecting doesn't re-fetch (or re-bill).
@@ -151,14 +163,25 @@ function useStrategyData(packet: QuantResearchPacket, spec: StrategySpec) {
   return { reading, readingLoading, backtest, backtestLoading };
 }
 
-function Dashboard({ packet, provider }: { packet: QuantResearchPacket; provider: string }) {
+function Dashboard({
+  packet: initialPacket,
+  provider,
+  catalog,
+}: {
+  packet: QuantResearchPacket;
+  provider: string;
+  catalog: StrategyCatalogItem[];
+}) {
+  const [packet, setPacket] = useState(initialPacket);
   const [specs, setSpecs] = useState(packet.strategy_specs);
   const [selected, setSelected] = useState(specs[0]?.strategy_name ?? "");
+  const [versionLoading, setVersionLoading] = useState(false);
 
   useEffect(() => {
-    setSpecs(packet.strategy_specs);
-    setSelected(packet.strategy_specs[0]?.strategy_name ?? "");
-  }, [packet.run_id, packet.strategy_specs]);
+    setPacket(initialPacket);
+    setSpecs(initialPacket.strategy_specs);
+    setSelected(initialPacket.strategy_specs[0]?.strategy_name ?? "");
+  }, [initialPacket.run_id, initialPacket.strategy_specs]);
 
   useEffect(() => {
     if (specs.length && !specs.some((s) => s.strategy_name === selected)) {
@@ -186,14 +209,34 @@ function Dashboard({ packet, provider }: { packet: QuantResearchPacket; provider
       packet={packet}
       spec={spec}
       specs={specs}
+      catalog={catalog}
       onSelect={setSelected}
+      onSelectVersion={async (runId) => {
+        if (runId === packet.run_id || versionLoading) return;
+        setVersionLoading(true);
+        try {
+          const next = await api.run(runId);
+          setPacket(next);
+          setSpecs(next.strategy_specs);
+          setSelected((current) =>
+            next.strategy_specs.some((item) => item.strategy_name === current)
+              ? current
+              : next.strategy_specs[0]?.strategy_name ?? ""
+          );
+        } finally {
+          setVersionLoading(false);
+        }
+      }}
       onUpdateSpec={(next) =>
-        setSpecs((items) =>
-          items.map((item) => (item.strategy_name === next.strategy_name ? next : item))
-        )
+        setSpecs((items) => {
+          const updated = items.map((item) => (item.strategy_name === next.strategy_name ? next : item));
+          setPacket((current) => ({ ...current, strategy_specs: updated }));
+          return updated;
+        })
       }
       selected={selected}
       provider={provider}
+      versionLoading={versionLoading}
     />
   );
 }
@@ -202,18 +245,24 @@ function DashboardBody({
   packet,
   spec,
   specs,
+  catalog,
   selected,
   onSelect,
+  onSelectVersion,
   onUpdateSpec,
   provider,
+  versionLoading,
 }: {
   packet: QuantResearchPacket;
   spec: StrategySpec;
   specs: StrategySpec[];
+  catalog: StrategyCatalogItem[];
   selected: string;
   onSelect: (name: string) => void;
+  onSelectVersion: (runId: string) => void;
   onUpdateSpec: (spec: StrategySpec) => void;
   provider: string;
+  versionLoading: boolean;
 }) {
   const { reading, readingLoading, backtest, backtestLoading } = useStrategyData(packet, spec);
   const [latexOpen, setLatexOpen] = useState(false);
@@ -234,9 +283,12 @@ function DashboardBody({
           packet={packet}
           spec={spec}
           specs={specs}
+          catalog={catalog}
           onSelect={onSelect}
+          onSelectVersion={onSelectVersion}
           backtest={backtest}
           backtestLoading={backtestLoading}
+          versionLoading={versionLoading}
         />
         <RightColumn
           spec={spec}
@@ -274,12 +326,95 @@ function Panel({
 }) {
   return (
     <Card className={`min-w-0 overflow-hidden ${className ?? ""}`}>
-      <div className="flex min-h-[42px] min-w-0 items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+      <div className="flex min-h-[42px] min-w-0 items-center justify-between gap-2 border-b border-border bg-card px-4 py-2.5">
         <Label className="min-w-0 truncate">{title}</Label>
         {right && <div className="shrink-0">{right}</div>}
       </div>
       {children}
     </Card>
+  );
+}
+
+function IconButton({
+  label,
+  children,
+  onClick,
+  disabled,
+  className,
+}: {
+  label: string;
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40 ${className ?? ""}`}
+      aria-label={label}
+      title={label}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ToolbarButton({
+  children,
+  onClick,
+  disabled,
+  className,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded border border-border px-2.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40 ${className ?? ""}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ExpansionBackdrop({ className }: { className: string }) {
+  return <div className={`fixed inset-0 bg-background/75 backdrop-blur-sm ${className}`} />;
+}
+
+function ExpansionHeader({
+  title,
+  meta,
+  right,
+  onClose,
+  closeLabel,
+}: {
+  title: string;
+  meta?: React.ReactNode;
+  right?: React.ReactNode;
+  onClose: () => void;
+  closeLabel: string;
+}) {
+  return (
+    <div className="flex min-h-[52px] min-w-0 items-center justify-between gap-3 border-b border-border bg-card px-4 py-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <Label className="min-w-0 truncate text-[11px]">{title}</Label>
+        {meta}
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {right}
+        <IconButton label={closeLabel} onClick={onClose}>
+          <X className="h-4 w-4" />
+        </IconButton>
+      </div>
+    </div>
   );
 }
 
@@ -422,19 +557,15 @@ function ChatPanel({
       title="Research chat"
       className={`flex flex-col ${expanded ? "h-full min-h-0 shadow-2xl" : "h-full min-h-0"}`}
       right={
-        <button
-          type="button"
-          onClick={onToggleLatex}
-          className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground"
-        >
-          {expanded ? <X className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
+        <ToolbarButton onClick={onToggleLatex}>
+          {expanded ? <X className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
           {expanded ? "Close" : "LaTeX"}
-        </button>
+        </ToolbarButton>
       }
     >
-      <div className="flex min-h-[96px] items-center border-b border-border px-4 py-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Pill tone="muted">{spec.strategy_name}</Pill>
+      <div className="flex min-h-[64px] items-center border-b border-border bg-background/35 px-4 py-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Pill tone="muted" className="max-w-full truncate">{spec.strategy_name}</Pill>
           <Pill tone={provider === "mock" ? "muted" : "good"}>{provider}</Pill>
         </div>
       </div>
@@ -466,10 +597,10 @@ function ChatPanel({
                   type="button"
                   disabled={busy}
                   onClick={() => send(s)}
-                  className="flex items-center gap-2 rounded border border-border bg-background px-3 py-2 text-left text-[12.5px] text-foreground/85 transition-colors hover:border-foreground/30 hover:text-foreground disabled:opacity-50"
+                  className="flex min-w-0 items-center gap-2 rounded border border-border bg-background px-3 py-2 text-left text-[12.5px] text-foreground/85 transition-colors hover:border-foreground/30 hover:bg-foreground/[0.03] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
                 >
                   <ArrowUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  {s}
+                  <span className="min-w-0 break-words">{s}</span>
                 </button>
               ))}
             </div>
@@ -493,19 +624,19 @@ function ChatPanel({
           e.preventDefault();
           send(draft);
         }}
-        className="flex items-end gap-2 border-t border-border p-3"
+        className="flex shrink-0 items-end gap-2 border-t border-border bg-card p-3"
       >
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           rows={1}
           placeholder="Ask about data, risks, or test design..."
-          className="max-h-28 min-h-[38px] flex-1 resize-none rounded border border-border bg-background px-3 py-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:border-foreground/40"
+          className="max-h-28 min-h-[38px] min-w-0 flex-1 resize-none rounded border border-border bg-background px-3 py-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:border-foreground/40 focus:ring-1 focus:ring-ring"
         />
         <button
           type="submit"
           disabled={!draft.trim() || busy}
-          className="flex h-10 items-center gap-1.5 rounded border border-border bg-foreground/[0.06] px-3 font-mono text-[11px] uppercase tracking-widest text-foreground transition-colors hover:bg-foreground/10 disabled:opacity-40"
+          className="flex h-10 shrink-0 items-center gap-1.5 rounded border border-border bg-foreground/[0.06] px-3 font-mono text-[11px] uppercase tracking-widest text-foreground transition-colors hover:bg-foreground/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-40"
         >
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
           Send
@@ -548,7 +679,7 @@ function ResearchExpansion({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-x-3 top-14 bottom-3 z-50 mx-auto grid max-w-[1900px] grid-cols-1 grid-rows-[minmax(360px,1fr)_minmax(360px,1fr)_minmax(360px,1fr)] gap-3 overflow-y-auto lg:inset-x-4 lg:top-16 lg:bottom-5 lg:grid-cols-[minmax(320px,1fr)_minmax(360px,1.1fr)_minmax(340px,1fr)] lg:grid-rows-1 lg:overflow-hidden">
+    <div className="fixed inset-x-3 top-14 bottom-3 z-50 mx-auto grid max-w-[1900px] grid-cols-1 grid-rows-[minmax(320px,1fr)_minmax(320px,1fr)_minmax(320px,1fr)] gap-3 overflow-y-auto lg:inset-x-4 lg:top-16 lg:bottom-5 lg:grid-cols-[minmax(300px,1fr)_minmax(340px,1.05fr)_minmax(320px,1fr)] lg:grid-rows-1 lg:overflow-hidden">
       <ChatPanel
         packet={packet}
         spec={spec}
@@ -575,11 +706,11 @@ function LatexPane({ spec }: { spec: StrategySpec }) {
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col rounded border border-border bg-card shadow-2xl">
-      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded border border-border bg-card shadow-2xl">
+      <div className="flex min-h-[52px] items-center justify-between gap-3 border-b border-border bg-card px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
-          <Label>LaTeX output</Label>
-          <Pill tone="muted">{spec.strategy_name}</Pill>
+          <Label className="shrink-0">LaTeX output</Label>
+          <Pill tone="muted" className="min-w-0 max-w-full truncate">{spec.strategy_name}</Pill>
         </div>
         <Sigma className="h-4 w-4 text-muted-foreground" />
       </div>
@@ -813,8 +944,8 @@ function StrategyLineEditor({
   }, [runId, source]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col rounded border border-border bg-card shadow-2xl">
-      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded border border-border bg-card shadow-2xl">
+      <div className="flex min-h-[52px] items-center justify-between gap-3 border-b border-border bg-card px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           <Label>Line editor</Label>
           <Pill tone={status.ok ? "good" : "bad"}>{status.ok ? "valid" : "blocked"}</Pill>
@@ -829,9 +960,9 @@ function StrategyLineEditor({
         value={source}
         spellCheck={false}
         onChange={(e) => setSource(e.target.value)}
-        className="min-h-0 flex-1 resize-none overflow-auto border-0 bg-background p-4 font-mono text-[12px] leading-6 text-foreground outline-none"
+        className="min-h-0 flex-1 resize-none overflow-auto border-0 bg-background p-4 font-mono text-[12px] leading-6 text-foreground outline-none focus:ring-1 focus:ring-inset focus:ring-ring"
       />
-      <div className="flex items-start gap-2 border-t border-border px-4 py-3 text-[12px] text-muted-foreground">
+      <div className="flex shrink-0 items-start gap-2 border-t border-border bg-card px-4 py-3 text-[12px] text-muted-foreground">
         <Code2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span className="min-w-0 break-words">{status.text}</span>
       </div>
@@ -879,7 +1010,7 @@ function LatexPreview({ source, spec }: { source: string; spec: StrategySpec }) 
               {block.title}
             </p>
             <div
-              className="overflow-x-auto text-[13px] text-foreground"
+              className="overflow-x-auto text-[13px] text-foreground [&_.katex-display]:my-0 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden"
               dangerouslySetInnerHTML={{ __html: block.html }}
             />
           </div>
@@ -1000,16 +1131,22 @@ function CenterColumn({
   packet,
   spec,
   specs,
+  catalog,
   onSelect,
+  onSelectVersion,
   backtest,
   backtestLoading,
+  versionLoading,
 }: {
   packet: QuantResearchPacket;
   spec: StrategySpec;
   specs: StrategySpec[];
+  catalog: StrategyCatalogItem[];
   onSelect: (name: string) => void;
+  onSelectVersion: (runId: string) => void;
   backtest: BacktestResult | null;
   backtestLoading: boolean;
+  versionLoading: boolean;
 }) {
   const events = [...packet.trace_events].sort((a, b) => a.step - b.step);
 
@@ -1019,8 +1156,11 @@ function CenterColumn({
         packet={packet}
         spec={spec}
         specs={specs}
+        catalog={catalog}
         selectedBacktest={backtest}
         onSelect={onSelect}
+        onSelectVersion={onSelectVersion}
+        versionLoading={versionLoading}
       />
 
       <BacktestPanel name={spec.strategy_name} result={backtest} loading={backtestLoading} />
@@ -1039,42 +1179,39 @@ function StrategyPanel({
   packet,
   spec,
   specs,
+  catalog,
   selectedBacktest,
   onSelect,
+  onSelectVersion,
+  versionLoading,
 }: {
   packet: QuantResearchPacket;
   spec: StrategySpec;
   specs: StrategySpec[];
+  catalog: StrategyCatalogItem[];
   selectedBacktest: BacktestResult | null;
   onSelect: (name: string) => void;
+  onSelectVersion: (runId: string) => void;
+  versionLoading: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const critique = findCritique(packet, spec.strategy_name);
-  const feasibility = findFeasibility(packet, spec);
+  const versions = useMemo(() => {
+    const ids = catalog
+      .filter((item) => item.strategy_name === spec.strategy_name)
+      .map((item) => item.run_id);
+    return Array.from(new Set([packet.run_id, ...ids]));
+  }, [catalog, packet.run_id, spec.strategy_name]);
 
   return (
     <>
-      <Panel
-        title="Strategy"
-        right={
-          <div className="flex items-center gap-2">
-            <Pill tone="muted">{specs.length} saved</Pill>
-            <button
-              type="button"
-              onClick={() => setExpanded(true)}
-              className="inline-flex h-7 w-7 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:text-foreground"
-              aria-label="Expand strategies"
-            >
-              <Maximize2 className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        }
-      >
-        <div className="flex min-h-[46px] items-center gap-2 px-3 py-2">
+      <Card className="min-w-0 overflow-hidden">
+        <div className="grid min-h-[52px] grid-cols-1 items-center gap-2 p-3 md:grid-cols-[auto_minmax(180px,1fr)_minmax(132px,0.55fr)_auto]">
+          <Label className="shrink-0">Strategy</Label>
           <select
             value={spec.strategy_name}
             onChange={(e) => onSelect(e.target.value)}
-            className="h-8 min-w-0 flex-1 rounded border border-border bg-background px-2 font-mono text-[11px] font-semibold text-foreground outline-none focus:border-foreground/40"
+            className="h-8 min-w-0 rounded border border-border bg-background px-2 font-mono text-[11px] font-semibold text-foreground outline-none focus:border-foreground/40 focus:ring-1 focus:ring-ring"
+            aria-label="Strategy"
           >
             {specs.map((s) => (
               <option key={s.strategy_name} value={s.strategy_name}>
@@ -1082,13 +1219,24 @@ function StrategyPanel({
               </option>
             ))}
           </select>
-          <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-1.5">
-            <ReadinessPill readiness={spec.backtest_readiness} />
-            {critique && <CritiquePill verdict={critique.verdict} />}
-            {feasibility && <VerdictPill verdict={feasibility.verdict} />}
-          </div>
+          <select
+            value={packet.run_id}
+            disabled={versionLoading}
+            onChange={(e) => onSelectVersion(e.target.value)}
+            className="h-8 min-w-0 rounded border border-border bg-background px-2 font-mono text-[11px] font-semibold text-foreground outline-none focus:border-foreground/40 focus:ring-1 focus:ring-ring disabled:cursor-wait disabled:opacity-50"
+            aria-label="Strategy version"
+          >
+            {versions.map((runId, index) => (
+              <option key={runId} value={runId}>
+                {index === 0 && runId === packet.run_id ? `current · ${runId}` : runId}
+              </option>
+            ))}
+          </select>
+          <IconButton label="Expand strategies" onClick={() => setExpanded(true)} className="h-8 w-8 justify-self-start md:justify-self-end">
+            <ChevronRight className="h-3.5 w-3.5" />
+          </IconButton>
         </div>
-      </Panel>
+      </Card>
       {expanded && (
         <ExpandedStrategyView
           packet={packet}
@@ -1180,26 +1328,22 @@ function ExpandedStrategyView({
   const updated = packetUpdated(packet);
   return (
     <>
-      <div className="fixed inset-0 z-[60] bg-background/75 backdrop-blur-sm" />
+      <ExpansionBackdrop className="z-[60]" />
       <div className="fixed inset-x-3 top-14 bottom-3 z-[61] mx-auto max-w-[1500px] overflow-hidden rounded border border-border bg-card text-foreground shadow-2xl lg:inset-x-4 lg:top-16 lg:bottom-5">
         <div className="flex h-full min-h-0 flex-col">
-          <div className="flex min-h-[52px] items-center justify-between gap-3 border-b border-border px-4 py-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <Label className="text-[13px]">Saved strategies</Label>
-              <Pill tone="muted">{specs.length}</Pill>
-              <Pill tone="muted">{packet.run_id}</Pill>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="inline-flex h-8 w-8 items-center justify-center rounded border border-border text-muted-foreground hover:text-foreground"
-              aria-label="Close strategies"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+          <ExpansionHeader
+            title="Saved strategies"
+            meta={
+              <>
+                <Pill tone="muted">{specs.length}</Pill>
+                <Pill tone="muted" className="max-w-[220px] truncate">{packet.run_id}</Pill>
+              </>
+            }
+            onClose={onClose}
+            closeLabel="Close strategies"
+          />
 
-          <div className="hidden grid-cols-[minmax(210px,1.55fr)_minmax(130px,0.8fr)_80px_96px_112px_96px_106px] border-b border-border px-4 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground md:grid">
+          <div className="sticky top-0 z-10 hidden grid-cols-[minmax(210px,1.55fr)_minmax(130px,0.8fr)_80px_96px_112px_96px_106px] border-b border-border bg-card px-4 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground md:grid">
             <span>Strategy</span>
             <span>Curve</span>
             <span className="text-right">Trades</span>
@@ -1220,7 +1364,7 @@ function ExpandedStrategyView({
                   key={rowSpec.strategy_name}
                   type="button"
                   onClick={() => onSelect(rowSpec.strategy_name)}
-                  className={`grid w-full grid-cols-1 gap-3 border-b border-border p-4 text-left transition-colors hover:bg-foreground/[0.035] md:grid-cols-[minmax(210px,1.55fr)_minmax(130px,0.8fr)_80px_96px_112px_96px_106px] md:items-center md:gap-0 ${
+                  className={`grid w-full grid-cols-1 gap-3 border-b border-border p-4 text-left transition-colors hover:bg-foreground/[0.035] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring md:grid-cols-[minmax(210px,1.55fr)_minmax(130px,0.8fr)_80px_96px_112px_96px_106px] md:items-center md:gap-0 ${
                     active ? "bg-foreground/[0.045]" : ""
                   }`}
                 >
@@ -1329,25 +1473,16 @@ function BacktestPanel({
         title="PnL curve"
         right={
           <div className="flex items-center gap-2">
-            {loading ? (
-              <Pill tone="muted">running…</Pill>
-            ) : real ? (
-              <Pill tone="good">
-                <Activity className="h-3 w-3" /> real · {result?.source}
-              </Pill>
-            ) : (
-              <Pill tone="warn">
-                <Activity className="h-3 w-3" /> simulated
-              </Pill>
-            )}
+            {loading && <Pill tone="muted">running…</Pill>}
             <button
               type="button"
               onClick={() => setExpanded(true)}
               disabled={loading}
-              className="inline-flex h-7 w-7 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
               aria-label="Expand PnL curve"
+              title="Expand PnL curve"
             >
-              <Maximize2 className="h-3.5 w-3.5" />
+              <ChevronRight className="h-3.5 w-3.5" />
             </button>
           </div>
         }
@@ -1368,12 +1503,6 @@ function BacktestPanel({
               <div className="h-56 w-full">
                 <PnlChart data={curve} compact />
               </div>
-              <p className="mt-1.5 flex flex-wrap items-center gap-x-2 px-1 font-mono text-[10px] text-muted-foreground">
-                <Sigma className="h-3 w-3" />
-                {result
-                  ? `${result.signal} · ${result.periods} periods${result.start ? ` · ${result.start}→${result.end}` : ""}`
-                  : "fixed-seed simulation — backtest unavailable"}
-              </p>
               {result && (
                 <p className="mt-1 px-1 text-[11px] leading-snug text-muted-foreground">
                   {result.note}
@@ -1536,28 +1665,18 @@ function ExpandedPnlView({
   const totalReturn = fmtPct(stats.totalReturn);
   return (
     <>
-      <div className="fixed inset-0 z-[70] bg-background/75 backdrop-blur-sm" />
+      <ExpansionBackdrop className="z-[70]" />
       <div className="fixed inset-x-3 top-14 bottom-3 z-[71] mx-auto max-w-[1900px] overflow-hidden rounded border border-border bg-card text-foreground shadow-2xl lg:inset-x-4 lg:top-16 lg:bottom-5">
-      <div className="grid h-full grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_440px]">
+      <div className="grid h-full min-h-0 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden xl:grid-cols-[minmax(0,1fr)_440px]">
         <section className="flex min-h-0 flex-col border-r border-border">
-          <div className="flex min-h-[42px] items-center justify-between gap-3 border-b border-border px-4 py-2.5">
-            <div className="flex min-w-0 items-center gap-2">
-              <Label className="truncate">PnL curve</Label>
-              <Pill tone="muted">{humanize(name)}</Pill>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="inline-flex h-8 w-8 items-center justify-center rounded border border-border text-muted-foreground hover:text-foreground"
-                aria-label="Close expanded PnL view"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
+          <ExpansionHeader
+            title="PnL curve"
+            meta={<Pill tone="muted" className="max-w-[320px] truncate">{humanize(name)}</Pill>}
+            onClose={onClose}
+            closeLabel="Close expanded PnL view"
+          />
 
-          <div className="relative min-h-0 flex-1">
+          <div className="relative min-h-[360px] flex-1">
             <div className="absolute left-4 top-4 z-10 space-y-4">
               <div className="flex items-center gap-2 rounded border border-border bg-card/85 px-2 py-1 font-mono text-[10px] uppercase tracking-widest">
                 <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />
@@ -1589,7 +1708,7 @@ function ExpandedPnlView({
                 $
               </button>
             </div>
-            <div className="h-full px-3 pb-2 pt-14">
+            <div className="h-full min-h-[360px] px-3 pb-2 pt-14">
               <PnlChart data={curve} mode={mode} />
             </div>
           </div>
@@ -1608,13 +1727,13 @@ function ExpandedPnlView({
 
         <aside className="min-h-0 border-t border-border bg-card lg:border-t-0">
           <div className="flex h-full min-h-0 flex-col">
-            <div className="flex min-h-[42px] items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+            <div className="sticky top-0 z-10 flex min-h-[42px] items-center justify-between gap-2 border-b border-border bg-card px-4 py-2.5">
               <Label>Recent activity</Label>
               <div className="shrink-0">
                 <Pill tone="muted">{result?.source ?? "research-preview"}</Pill>
               </div>
             </div>
-            <div className="grid grid-cols-[1fr_0.75fr_1fr_1fr] border-b border-border px-4 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <div className="sticky top-[42px] z-10 grid grid-cols-[1fr_0.75fr_1fr_1fr] border-b border-border bg-card px-4 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               <span>Time</span>
               <span>Rule</span>
               <span className="text-right">Size</span>
@@ -1696,14 +1815,17 @@ function ReadingPanel({
   const aiCurated = provider !== null && !["mock", "offline", "workspace"].includes(provider);
   return (
     <Panel
-      title={`Suggested reading · ${name}`}
+      title="Suggested reading"
       className={`flex min-h-0 flex-col ${className ?? ""}`}
       right={
-        provider ? (
-          <Pill tone={aiCurated ? "good" : "muted"}>
-            {aiCurated ? `AI · ${provider}` : provider}
-          </Pill>
-        ) : undefined
+        <div className="flex items-center gap-1.5">
+          {items && <Pill tone="muted">{items.length}</Pill>}
+          {provider ? (
+            <Pill tone={aiCurated ? "good" : "muted"}>
+              {aiCurated ? `AI · ${provider}` : provider}
+            </Pill>
+          ) : null}
+        </div>
       }
     >
       {loading ? (
@@ -1716,15 +1838,16 @@ function ReadingPanel({
         </p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex min-h-[34px] items-center gap-2 border-b border-border bg-background/35 px-3 py-2">
+            <span className="min-w-0 truncate font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              {name}
+            </span>
+          </div>
           <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
             {items.map((it, i) => (
               <ReadingRow key={`${it.title}-${i}`} item={it} />
             ))}
           </ul>
-          <p className="border-t border-border px-4 py-2 font-mono text-[10px] text-muted-foreground">
-            Reading is tied to the selected strategy. Workspace items come from the run packet;
-            external links appear only when a source URL exists.
-          </p>
         </div>
       )}
     </Panel>
@@ -1734,13 +1857,13 @@ function ReadingPanel({
 function ReadingRow({ item }: { item: ReadingItem }) {
   const meta = TYPE_META[item.type];
   return (
-    <li className="min-w-0 space-y-1.5 p-3">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
+    <li className="min-w-0 space-y-2 p-3 transition-colors hover:bg-foreground/[0.025]">
+      <div className="flex min-w-0 items-center gap-2">
         <Pill tone={meta.tone}>
           {meta.icon}
           {item.type}
         </Pill>
-        <span className="min-w-0 truncate font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
           {item.source}
           {item.year ? ` · ${item.year}` : ""}
         </span>
@@ -1749,17 +1872,17 @@ function ReadingRow({ item }: { item: ReadingItem }) {
             href={item.url}
             target="_blank"
             rel="noreferrer"
-            className="ml-auto inline-flex shrink-0 items-center gap-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-flex shrink-0 items-center gap-1 rounded border border-transparent px-1 py-0.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             open <ExternalLink className="h-3 w-3" />
           </a>
         )}
       </div>
-      <p className="break-words text-[13px] font-semibold leading-snug text-foreground">{item.title}</p>
+      <p className="line-clamp-2 break-words text-[13px] font-semibold leading-snug text-foreground">{item.title}</p>
       {item.summary && (
-        <p className="break-words text-[12.5px] leading-relaxed text-foreground/85">{item.summary}</p>
+        <p className="line-clamp-2 break-words text-[12.5px] leading-relaxed text-foreground/85">{item.summary}</p>
       )}
-      <p className="break-words text-[12px] leading-relaxed text-muted-foreground">
+      <p className="line-clamp-2 break-words text-[12px] leading-relaxed text-muted-foreground">
         <span className="font-mono text-[9px] font-semibold uppercase tracking-widest text-foreground/70">
           Why{" "}
         </span>
@@ -1819,14 +1942,9 @@ function AgentActivity({
             <span className="inline-flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
               <ScrollText className="h-3 w-3" /> {events.length} steps
             </span>
-            <button
-              type="button"
-              onClick={() => setExpanded(true)}
-              className="inline-flex h-7 w-7 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:text-foreground"
-              aria-label="Expand agent activity"
-            >
-              <Maximize2 className="h-3.5 w-3.5" />
-            </button>
+            <IconButton label="Expand agent activity" onClick={() => setExpanded(true)} className="h-7 w-7">
+              <ChevronRight className="h-3.5 w-3.5" />
+            </IconButton>
           </div>
         }
       >
@@ -1840,10 +1958,10 @@ function AgentActivity({
                   <span className="font-mono text-[10px] text-muted-foreground">
                     {String(ev.step).padStart(2, "0")}
                   </span>
-                  <span className="truncate font-mono text-[11px] font-semibold text-foreground">
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] font-semibold text-foreground">
                     {ev.agent_name}
                   </span>
-                  <span className="ml-auto shrink-0">
+                  <span className="shrink-0">
                     <TraceStatusPill status={ev.status} />
                   </span>
                 </div>
@@ -1880,6 +1998,10 @@ type AgentChatMessage = {
   text: string;
   meta?: string;
   role: "log" | "user" | "agent";
+  event?: TraceEvent;
+  trace?: AgentTrace;
+  step?: number;
+  status?: TraceStatus;
 };
 
 function agentInitials(name: string): string {
@@ -1912,6 +2034,7 @@ function logMessagesForAgent(agent: string, events: TraceEvent[], traces: AgentT
       role: "log",
       meta: "input",
       text: trace.input_summary,
+      trace,
     });
   }
   for (const event of agentEvents) {
@@ -1929,6 +2052,9 @@ function logMessagesForAgent(agent: string, events: TraceEvent[], traces: AgentT
       role: "log",
       meta: `step ${String(event.step).padStart(2, "0")} · ${event.status}`,
       text: lines.join("\n") || "No output summary emitted.",
+      event,
+      step: event.step,
+      status: event.status,
     });
   }
   if (trace?.output_summary && !agentEvents.some((event) => event.output_summary === trace.output_summary)) {
@@ -1938,6 +2064,7 @@ function logMessagesForAgent(agent: string, events: TraceEvent[], traces: AgentT
       role: "log",
       meta: `schema ${trace.schema_used} · ${trace.validation_status}`,
       text: trace.output_summary,
+      trace,
     });
   }
   if (trace?.errors?.length) {
@@ -1947,6 +2074,8 @@ function logMessagesForAgent(agent: string, events: TraceEvent[], traces: AgentT
       role: "log",
       meta: "validation errors",
       text: trace.errors.join("\n"),
+      trace,
+      status: "failed",
     });
   }
 
@@ -1955,7 +2084,9 @@ function logMessagesForAgent(agent: string, events: TraceEvent[], traces: AgentT
 
 function baseMessagesForChannel(channel: string, agents: string[], events: TraceEvent[], traces: AgentTrace[]) {
   if (channel === "all-activity") {
-    return events.flatMap((event) => logMessagesForAgent(event.agent_name, [event], traces));
+    return agents
+      .flatMap((agent) => logMessagesForAgent(agent, events, traces))
+      .sort((a, b) => (a.step ?? 9999) - (b.step ?? 9999));
   }
   return logMessagesForAgent(channel, events, traces);
 }
@@ -1975,10 +2106,24 @@ function agentReply(channel: string, text: string, events: TraceEvent[], traces:
   };
 }
 
-function AgentMessageRow({ message }: { message: AgentChatMessage }) {
+function AgentMessageRow({
+  message,
+  selected,
+  onSelect,
+}: {
+  message: AgentChatMessage;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   const mine = message.role === "user";
   return (
-    <div className={`flex gap-3 ${mine ? "justify-end" : ""}`}>
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`flex w-full gap-3 rounded p-1 text-left transition-colors hover:bg-foreground/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+        mine ? "justify-end" : ""
+      } ${selected ? "bg-foreground/[0.05]" : ""}`}
+    >
       {!mine && (
         <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-foreground/[0.06] font-mono text-[10px] font-semibold text-foreground">
           {agentInitials(message.agent)}
@@ -2007,6 +2152,183 @@ function AgentMessageRow({ message }: { message: AgentChatMessage }) {
           {message.text}
         </div>
       </div>
+    </button>
+  );
+}
+
+type StatusFilter = "all" | TraceStatus;
+
+function channelStats(messages: AgentChatMessage[]) {
+  const logs = messages.filter((message) => message.role === "log");
+  return {
+    logs: logs.length,
+    success: logs.filter((message) => message.status === "success").length,
+    failed: logs.filter((message) => message.status === "failed").length,
+    skipped: logs.filter((message) => message.status === "skipped").length,
+    tokensIn: logs.reduce((sum, message) => sum + (message.event?.tokens_in ?? 0), 0),
+    tokensOut: logs.reduce((sum, message) => sum + (message.event?.tokens_out ?? 0), 0),
+    duration: logs.reduce((sum, message) => sum + (message.event?.duration_ms ?? 0), 0),
+  };
+}
+
+function messageMatches(message: AgentChatMessage, query: string, status: StatusFilter): boolean {
+  if (status !== "all" && message.status !== status) return false;
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return [message.agent, message.meta, message.text, message.event?.input_summary, message.event?.output_summary]
+    .filter(Boolean)
+    .some((part) => String(part).toLowerCase().includes(q));
+}
+
+function messagesAsText(runId: string, channel: string, messages: AgentChatMessage[]): string {
+  return [
+    `run: ${runId}`,
+    `channel: ${channel}`,
+    "",
+    ...messages.map((message) =>
+      [
+        `[${message.role}] ${message.agent}${message.meta ? ` · ${message.meta}` : ""}`,
+        message.text,
+      ].join("\n")
+    ),
+  ].join("\n\n");
+}
+
+function copyText(text: string) {
+  void navigator.clipboard?.writeText(text);
+}
+
+function downloadText(filename: string, text: string) {
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function LogDetailPanel({
+  message,
+  stats,
+  onCopy,
+}: {
+  message: AgentChatMessage | null;
+  stats: ReturnType<typeof channelStats>;
+  onCopy: () => void;
+}) {
+  return (
+    <aside className="flex min-h-0 flex-col border-t border-border bg-background/45 xl:border-l xl:border-t-0">
+      <div className="border-b border-border px-4 py-3">
+        <div className="flex items-center justify-between gap-2">
+          <Label>Inspector</Label>
+          <button
+            type="button"
+            onClick={onCopy}
+            className="inline-flex h-7 items-center gap-1.5 rounded border border-border px-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            Copy
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-px border-b border-border bg-border">
+        <div className="bg-card p-3">
+          <div className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">Logs</div>
+          <div className="mt-1 font-mono text-sm text-foreground">{stats.logs}</div>
+        </div>
+        <div className="bg-card p-3">
+          <div className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">Failed</div>
+          <div className={`mt-1 font-mono text-sm ${stats.failed ? "text-red-400" : "text-foreground"}`}>
+            {stats.failed}
+          </div>
+        </div>
+        <div className="bg-card p-3">
+          <div className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">Time</div>
+          <div className="mt-1 font-mono text-sm text-foreground">{stats.duration.toFixed(0)}ms</div>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        {!message ? (
+          <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+            Select a log message to inspect its event payload, validation status, token usage, and raw summaries.
+          </p>
+        ) : (
+          <>
+            <div>
+              <div className="mb-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                Selected
+              </div>
+              <div className="rounded border border-border bg-card p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate font-mono text-[12px] font-semibold text-foreground">
+                    {message.agent}
+                  </span>
+                  {message.status && <TraceStatusPill status={message.status} />}
+                </div>
+                <p className="mt-2 whitespace-pre-wrap text-[12.5px] leading-relaxed text-foreground/80">
+                  {message.text}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <DetailMetric label="Step" value={message.event ? String(message.event.step) : "trace"} />
+              <DetailMetric label="Duration" value={message.event?.duration_ms != null ? `${message.event.duration_ms.toFixed(0)}ms` : "n/a"} />
+              <DetailMetric label="Tokens in" value={String(message.event?.tokens_in ?? 0)} />
+              <DetailMetric label="Tokens out" value={String(message.event?.tokens_out ?? 0)} />
+            </div>
+
+            {message.trace && (
+              <div className="rounded border border-border bg-card p-3">
+                <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Trace schema
+                </div>
+                <p className="mt-2 font-mono text-[12px] text-foreground">
+                  {message.trace.schema_used || "unknown"}
+                </p>
+                <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                  validation: {message.trace.validation_status}
+                </p>
+              </div>
+            )}
+
+            {message.event?.input_summary && (
+              <RawBlock label="Input summary" value={message.event.input_summary} />
+            )}
+            {message.event?.output_summary && (
+              <RawBlock label="Output summary" value={message.event.output_summary} />
+            )}
+            {message.event?.error && <RawBlock label="Error" value={message.event.error} />}
+          </>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function DetailMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded border border-border bg-card p-3">
+      <div className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className="mt-1 truncate font-mono text-[12px] text-foreground">{value}</div>
+    </div>
+  );
+}
+
+function RawBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="mb-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        {label}
+      </div>
+      <pre className="max-h-56 overflow-auto rounded border border-border bg-card p-3 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-foreground/80">
+        {value}
+      </pre>
     </div>
   );
 }
@@ -2025,13 +2347,23 @@ function ExpandedAgentActivity({
   const agents = useMemo(() => agentChannels(events, traces), [events, traces]);
   const [active, setActive] = useState("all-activity");
   const [draft, setDraft] = useState("");
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [threads, setThreads] = useState<Record<string, AgentChatMessage[]>>({});
   const baseMessages = useMemo(
     () => baseMessagesForChannel(active, agents, events, traces),
     [active, agents, events, traces]
   );
   const messages = [...baseMessages, ...(threads[active] ?? [])];
+  const visibleMessages = messages.filter((message) => messageMatches(message, query, statusFilter));
+  const stats = channelStats(baseMessages);
+  const selectedMessage =
+    visibleMessages.find((message) => message.id === selectedMessageId) ??
+    visibleMessages.find((message) => message.role === "log") ??
+    null;
   const activeTrace = active === "all-activity" ? undefined : traceForAgent(active, traces);
+  const exportText = messagesAsText(runId, active, visibleMessages);
 
   const send = () => {
     const text = draft.trim();
@@ -2052,11 +2384,11 @@ function ExpandedAgentActivity({
 
   return (
     <>
-      <div className="fixed inset-0 z-[80] bg-background/75 backdrop-blur-sm" />
+      <ExpansionBackdrop className="z-[80]" />
       <div className="fixed inset-x-3 top-14 bottom-3 z-[81] mx-auto max-w-[1900px] overflow-hidden rounded border border-border bg-card text-foreground shadow-2xl lg:inset-x-4 lg:top-16 lg:bottom-5">
-        <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)]">
+        <div className="grid h-full min-h-0 grid-cols-1 overflow-y-auto lg:grid-cols-[280px_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[280px_minmax(0,1fr)_340px]">
           <aside className="min-h-0 border-b border-border bg-background/60 lg:border-b-0 lg:border-r">
-            <div className="border-b border-border px-4 py-4">
+            <div className="sticky top-0 z-20 border-b border-border bg-background px-4 py-4 lg:static">
               <div className="font-mono text-[13px] font-semibold text-foreground">Agent workspace</div>
               <div className="mt-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                 {runId}
@@ -2066,40 +2398,58 @@ function ExpandedAgentActivity({
               <Label className="mb-2 block px-1 text-[10px]">Channels</Label>
               <button
                 type="button"
-                onClick={() => setActive("all-activity")}
-                className={`mb-1 flex w-full items-center gap-2 rounded px-3 py-2 text-left font-mono text-[12px] ${
+                onClick={() => {
+                  setActive("all-activity");
+                  setSelectedMessageId(null);
+                }}
+                className={`mb-1 flex w-full items-center gap-2 rounded px-3 py-2 text-left font-mono text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                   active === "all-activity"
                     ? "bg-foreground/[0.08] text-foreground"
                     : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
                 }`}
               >
                 <Hash className="h-3.5 w-3.5" />
-                all-activity
+                <span className="min-w-0 flex-1 truncate">all-activity</span>
+                <span className="text-[10px] text-muted-foreground">{events.length}</span>
               </button>
 
               <Label className="mb-2 mt-5 block px-1 text-[10px]">Direct agents</Label>
               <div className="space-y-1">
-                {agents.map((agent) => (
-                  <button
-                    type="button"
-                    key={agent}
-                    onClick={() => setActive(agent)}
-                    className={`flex w-full min-w-0 items-center gap-2 rounded px-3 py-2 text-left font-mono text-[12px] ${
-                      active === agent
-                        ? "bg-foreground/[0.08] text-foreground"
-                        : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
-                    }`}
-                  >
-                    <AtSign className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">{agent}</span>
-                  </button>
-                ))}
+                {agents.map((agent) => {
+                  const agentMessages = logMessagesForAgent(agent, events, traces);
+                  const agentStats = channelStats(agentMessages);
+                  return (
+                    <button
+                      type="button"
+                      key={agent}
+                      onClick={() => {
+                        setActive(agent);
+                        setSelectedMessageId(null);
+                      }}
+                      className={`flex w-full min-w-0 items-center gap-2 rounded px-3 py-2 text-left font-mono text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                        active === agent
+                          ? "bg-foreground/[0.08] text-foreground"
+                          : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
+                      }`}
+                    >
+                      <AtSign className="h-3.5 w-3.5 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">{agent}</span>
+                      {agentStats.failed > 0 ? (
+                        <span className="rounded border border-red-400/30 px-1.5 py-0.5 text-[9px] text-red-400">
+                          {agentStats.failed}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">{agentStats.logs}</span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </aside>
 
           <section className="flex min-h-0 flex-col">
-            <div className="flex min-h-[52px] items-center justify-between gap-3 border-b border-border px-4 py-3">
+            <div className="flex min-h-[52px] items-center justify-between gap-3 border-b border-border bg-card px-4 py-3">
               <div className="flex min-w-0 items-center gap-3">
                 {active === "all-activity" ? (
                   <Hash className="h-4 w-4 text-muted-foreground" />
@@ -2117,21 +2467,72 @@ function ExpandedAgentActivity({
                   </div>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="inline-flex h-8 w-8 items-center justify-center rounded border border-border text-muted-foreground hover:text-foreground"
-                aria-label="Close agent activity"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                <ToolbarButton onClick={() => copyText(exportText)}>
+                  <Copy className="h-3.5 w-3.5" />
+                  Copy
+                </ToolbarButton>
+                <ToolbarButton
+                  onClick={() =>
+                    downloadText(
+                      `${runId}-${active.replace(/[^a-z0-9_-]+/gi, "-")}-logs.txt`,
+                      exportText
+                    )
+                  }
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Export
+                </ToolbarButton>
+                <IconButton label="Close agent activity" onClick={onClose}>
+                  <X className="h-4 w-4" />
+                </IconButton>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
+              <div className="relative min-w-0 flex-[1_1_220px]">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search logs, agents, errors..."
+                  className="h-8 w-full rounded border border-border bg-background pl-8 pr-3 font-mono text-[11px] text-foreground outline-none placeholder:text-muted-foreground focus:border-foreground/40 focus:ring-1 focus:ring-ring"
+                />
+              </div>
+              <div className="flex overflow-hidden rounded border border-border bg-background p-1 font-mono text-[10px] uppercase tracking-widest">
+                {(["all", "success", "failed", "skipped"] as StatusFilter[]).map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => setStatusFilter(status)}
+                    className={`rounded px-2 py-1 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                      statusFilter === status
+                        ? "bg-foreground/10 text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {status}
+                  </button>
+                ))}
+              </div>
+              <div className="ml-auto flex flex-wrap items-center gap-2 font-mono text-[10px] text-muted-foreground">
+                <span>{visibleMessages.length} shown</span>
+                <span>{stats.tokensIn + stats.tokensOut} tokens</span>
+              </div>
             </div>
 
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-              {messages.length === 0 ? (
+              {visibleMessages.length === 0 ? (
                 <p className="text-[12.5px] text-muted-foreground">No logs were emitted for this channel.</p>
               ) : (
-                messages.map((message) => <AgentMessageRow key={message.id} message={message} />)
+                visibleMessages.map((message) => (
+                  <AgentMessageRow
+                    key={message.id}
+                    message={message}
+                    selected={selectedMessage?.id === message.id}
+                    onSelect={() => setSelectedMessageId(message.id)}
+                  />
+                ))
               )}
             </div>
 
@@ -2140,7 +2541,7 @@ function ExpandedAgentActivity({
                 event.preventDefault();
                 send();
               }}
-              className="border-t border-border p-3"
+              className="shrink-0 border-t border-border bg-card p-3"
             >
               <div className="flex items-end gap-2 rounded border border-border bg-background p-2">
                 <textarea
@@ -2148,12 +2549,12 @@ function ExpandedAgentActivity({
                   onChange={(event) => setDraft(event.target.value)}
                   rows={1}
                   placeholder={`Message ${active === "all-activity" ? "#all-activity" : `@${active}`}...`}
-                  className="max-h-28 min-h-[36px] flex-1 resize-none bg-transparent px-2 py-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+                  className="max-h-28 min-h-[36px] min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
                 />
                 <button
                   type="submit"
                   disabled={!draft.trim()}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded border border-border bg-foreground/[0.06] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded border border-border bg-foreground/[0.06] text-muted-foreground transition-colors hover:bg-foreground/[0.08] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-40"
                   aria-label="Send agent message"
                 >
                   <Send className="h-4 w-4" />
@@ -2161,6 +2562,12 @@ function ExpandedAgentActivity({
               </div>
             </form>
           </section>
+
+          <LogDetailPanel
+            message={selectedMessage}
+            stats={stats}
+            onCopy={() => copyText(selectedMessage ? messagesAsText(runId, active, [selectedMessage]) : exportText)}
+          />
         </div>
       </div>
     </>
@@ -2181,7 +2588,12 @@ function MarketAlertsPanel({ alerts, className }: { alerts: MarketAlert[] | null
     <Panel
       title="Market alerts"
       className={`flex min-h-0 flex-col ${className ?? ""}`}
-      right={<Pill tone="muted">Google News</Pill>}
+      right={
+        <div className="flex items-center gap-1.5">
+          {alerts && <Pill tone="muted">{alerts.length}</Pill>}
+          <Pill tone="muted">News</Pill>
+        </div>
+      }
     >
       {alerts === null ? (
         <div className="flex min-h-0 flex-1 items-center p-4">
@@ -2202,14 +2614,14 @@ function MarketAlertsPanel({ alerts, className }: { alerts: MarketAlert[] | null
 
 function AlertRow({ alert }: { alert: MarketAlert }) {
   return (
-    <li className="min-w-0 space-y-1.5 p-3">
+    <li className="min-w-0 space-y-2 p-3 transition-colors hover:bg-foreground/[0.025]">
       <div className="flex min-w-0 items-center gap-2">
         <Pill tone={ALERT_TONE[alert.tag] ?? "muted"}>{alert.tag}</Pill>
-        <span className="ml-auto min-w-0 truncate font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
+        <span className="ml-auto min-w-0 truncate font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
           {alert.strategy_tag}
         </span>
       </div>
-      <p className="break-words text-[12.5px] leading-snug text-foreground/90">{alert.headline}</p>
+      <p className="line-clamp-3 break-words text-[12.5px] leading-snug text-foreground/90">{alert.headline}</p>
     </li>
   );
 }
