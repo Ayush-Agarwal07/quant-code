@@ -280,7 +280,9 @@ export function derivedReading(p: QuantResearchPacket, spec: StrategySpec): Cura
     year: null,
     summary: f.summary,
     why: f.whyMatters,
-    url: f.sourceUrl ?? null,
+    // ponytail: offline fallback is derived from packet artifacts, not a verified citation feed.
+    // Hide links here so we don't send users to unrelated generated/source URLs.
+    url: null,
   }));
   const alerts = [];
   const mech = findMechanism(p, spec);

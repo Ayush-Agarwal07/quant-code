@@ -1905,6 +1905,11 @@ function ReadingPanel({
 
 function ReadingRow({ item }: { item: ReadingItem }) {
   const meta = TYPE_META[item.type];
+  const title = (
+    <p className="line-clamp-2 break-words text-[13px] font-semibold leading-snug text-foreground">
+      {item.title}
+    </p>
+  );
   return (
     <li className="min-w-0 space-y-2 p-3 transition-colors hover:bg-foreground/[0.025]">
       <div className="flex min-w-0 items-center gap-2">
@@ -1927,7 +1932,18 @@ function ReadingRow({ item }: { item: ReadingItem }) {
           </a>
         )}
       </div>
-      <p className="line-clamp-2 break-words text-[13px] font-semibold leading-snug text-foreground">{item.title}</p>
+      {item.url ? (
+        <a
+          href={item.url}
+          target="_blank"
+          rel="noreferrer"
+          className="block rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring hover:underline"
+        >
+          {title}
+        </a>
+      ) : (
+        title
+      )}
       {item.summary && (
         <p className="line-clamp-2 break-words text-[12.5px] leading-relaxed text-foreground/85">{item.summary}</p>
       )}
