@@ -1,0 +1,17 @@
+Who are the judges going to be? What are they looking for?
+Your project will be judged by expert VCs, founders, and software engineers who come from a variety of backgrounds. They’re looking for the following in projects:
+Application 
+Does the project have any feasible application in real life? Does it seem like something that someone could use or would actually have a benefit in the real world?
+Functionality/Quality
+Is the project free of major bugs? Does it look appealing? The UI/UX doesn’t have to be absolutely perfect, but if we’re having a hard time understanding the project by looking at it, there may be a problem.
+Creativity
+Is this project unique and innovative? Is it a solution to a problem we have never seen before? A better way of doing something?
+Technical Complexity
+The team should display a good level of knowledge in terms of the technology they’ve used in implementing their project.
+
+[NEW JUDGING CATEGORIES]
+
+Ethical Considerations 
+Does the project take into account ethical considerations of the use of AI? This can include awareness and consideration of the social, environmental, and privacy impacts that the development of AI comes with. 
+Brainstorming and Process 
+Does the project reflect a high level of effort put into brainstorming and iterating? We are not looking for 100% vibe coded apps or AI wrappers. We care more about the thought process behind why you chose a particular project and a demonstrated iterative design process considering various factors.
