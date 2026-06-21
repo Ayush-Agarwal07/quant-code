@@ -6,13 +6,35 @@ gated — the router only returns these when QC_LLM_PROVIDER is explicitly set a
 from __future__ import annotations
 
 import json
+import os
+import time
 from typing import Any
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from pydantic import BaseModel
 
 from quantcode.llm.base import LLMError
+
+
+def _log_usage(provider: str, model: str | None, schema: str, usage: dict[str, Any]) -> None:
+    path = os.getenv("QC_LLM_USAGE_LOG")
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(
+            json.dumps(
+                {
+                    "ts": time.time(),
+                    "provider": provider,
+                    "model": model,
+                    "schema": schema,
+                    "usage": usage,
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
 
 
 def _send_context(context: dict[str, Any] | None) -> str:
@@ -27,10 +49,38 @@ def _to_strict_schema(node: Any) -> Any:
     defaults, so optional fields must still appear). `default` is stripped — strict mode rejects
     it. Schemas using unsupported keywords (e.g. minItems from list min_length) may still fail."""
     if isinstance(node, dict):
+        if node.get("type") == "array" and "prefixItems" in node and "items" not in node:
+            items = node.get("prefixItems") or [{"type": "string"}]
+            node = {k: v for k, v in node.items() if k != "prefixItems"}
+            node["items"] = (
+                items[0] if all(item == items[0] for item in items) else {"anyOf": items}
+            )
+        if (
+            node.get("type") == "object"
+            and "properties" not in node
+            and "additionalProperties" in node
+        ):
+            value_schema = node["additionalProperties"]
+            if not isinstance(value_schema, dict):
+                value_schema = {"type": "string"}
+            value_schema = _to_strict_schema(value_schema)
+            out = {
+                "type": "object",
+                "properties": {"value": value_schema},
+                "required": ["value"],
+                "additionalProperties": False,
+            }
+            if node.get("title"):
+                out["title"] = node["title"]
+            return out
         out = {k: _to_strict_schema(v) for k, v in node.items() if k != "default"}
-        if out.get("type") == "object" and "properties" in out:
+        if out.get("type") == "object":
+            # ponytail: OpenAI strict schemas reject free-form dicts. These metadata dicts can
+            # be empty for live smoke; schema validation still catches core artifact shape.
             out["additionalProperties"] = False
-            out["required"] = list(out["properties"].keys())
+            properties = out.get("properties")
+            if isinstance(properties, dict):
+                out["required"] = list(properties.keys())
         return out
     if isinstance(node, list):
         return [_to_strict_schema(v) for v in node]
@@ -81,7 +131,13 @@ class OpenAICompatibleClient:
             with urlopen(request, timeout=60) as response:  # noqa: S310
                 payload = json.loads(response.read().decode("utf-8"))
             self.last_usage = payload.get("usage") or {}
+            _log_usage(self.provider_name, self.model, schema.__name__, self.last_usage)
             return schema.model_validate_json(payload["choices"][0]["message"]["content"])
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")
+            raise LLMError(
+                f"openai_compatible structured generation failed: HTTP {exc.code}: {detail}"
+            ) from exc
         except (URLError, KeyError, TypeError, ValueError) as exc:
             raise LLMError(f"openai_compatible structured generation failed: {exc}") from exc
 
@@ -124,6 +180,7 @@ class OllamaClient:
                 for k in ("prompt_eval_count", "eval_count", "total_duration")
                 if k in payload
             }
+            _log_usage(self.provider_name, self.model, schema.__name__, self.last_usage)
             return schema.model_validate_json(payload["message"]["content"])
         except (URLError, KeyError, TypeError, ValueError) as exc:
             raise LLMError(f"ollama structured generation failed: {exc}") from exc
@@ -172,6 +229,7 @@ class AnthropicClient:
                 "input_tokens": getattr(usage, "input_tokens", None),
                 "output_tokens": getattr(usage, "output_tokens", None),
             }
+            _log_usage(self.provider_name, self.model, schema.__name__, self.last_usage)
             for block in msg.content:
                 if getattr(block, "type", None) == "tool_use":
                     return schema.model_validate(block.input)

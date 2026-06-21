@@ -8,7 +8,6 @@ human or small cleanup.
 
 | # | Task | Priority | What remains |
 |---|------|----------|--------------|
-| [03](03_live_llm_claude.md) | Live Claude smoke | P0 | Anthropic credentials/model are missing locally; OpenAI-compatible smoke passed. |
 | [01](01_dashboard.md) | Dashboard polish/docs | P2 | Frontend exists; leftover docs and launch path still need cleanup. |
 | [09](09_commit_build.md) | Commit current work | P3 | Recent commits exist, but current P0/P1 edits are uncommitted. |
 
@@ -27,6 +26,7 @@ human or small cleanup.
 | [04](04_live_browserbase.md) | Live Browserbase `research-url`. |
 | [05](05_compaction_demo_polish.md) | Honest compaction ratio demo. |
 | [07](07_fastembed_offline_readiness.md) | fastembed/tokenizer pre-warm. |
+| [03](03_live_llm_claude.md) | Live OpenAI-compatible LLM smoke. |
 
 **Out of scope:** real backtester (M4), data connectors (M5), paper trading (M6),
 continuous watcher (M7). See [`../docs/future_milestones.md`](../docs/future_milestones.md).

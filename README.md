@@ -59,6 +59,70 @@ The `quantcode` CLI is then on `.venv/bin/quantcode`.
 Two scripted runs proving the learning loop: run 2 retrieves a lesson learned in run 1 and
 changes behavior. The panel prints `memory backend: memory` (offline fallback).
 
+### 2b. CLI workflow: create and check strategies
+
+```bash
+.venv/bin/quantcode strategy
+.venv/bin/quantcode check
+```
+
+`strategy` runs the full research pipeline and writes strategy YAML + run artifacts.
+`check` runs the keyless EOD backtest for the latest run and pulls relevant arXiv papers
+plus recent Google News. To check one strategy from a specific run:
+
+```bash
+.venv/bin/quantcode check run_025 --strategy "Post-Earnings Announcement Drift Momentum"
+```
+
+## CLI Reference
+
+QuantCode is meant to be usable from the terminal end to end. The high-level flow is:
+
+```bash
+.venv/bin/quantcode strategy "Find short-horizon underreaction strategies"
+.venv/bin/quantcode check runs/latest
+```
+
+| Command | Purpose |
+|---|---|
+| `quantcode init` | Create workspace dirs and a starter `.env` without overwriting an existing one. |
+| `quantcode strategy [objective]` | Create strategy specs from an objective using the full agent pipeline. Writes run JSON, Markdown report, context pack, and strategy YAML. |
+| `quantcode check [run_id]` | Backtest strategy specs from a run and pull relevant arXiv papers + Google News. Defaults to `runs/latest`. |
+| `quantcode research "<objective>"` | Lower-level pipeline command used by `strategy`; writes the same run artifacts. |
+| `quantcode inspect [runs/latest]` | Print a compact summary of a saved run. |
+| `quantcode compact [runs/latest] --budget 1000` | Re-run the ResearchTrace Compiler over a run trace at a token budget. |
+| `quantcode memory search "<query>"` | Search promoted Tier 3 lessons through Redis or the in-memory fallback. |
+| `quantcode research-url <url> --confirm` | Browserbase live-fetch path: scrape a URL into prior-art themes, then run the pipeline. |
+| `quantcode demo` | Offline two-run demo showing memory retrieval and behavior change. |
+| `quantcode warmup` | Download/cache tokenizer + embedding model for measured compaction and real semantic search. |
+| `quantcode benchmarks` | Run reproducible offline compaction/retrieval benchmarks. |
+
+Useful examples:
+
+```bash
+# Create strategies with the default objective.
+.venv/bin/quantcode strategy
+
+# Create strategies from a custom objective and promote lessons to Tier 3 memory.
+.venv/bin/quantcode strategy "Find earnings-underreaction strategies using OHLCV only" --promote
+
+# Backtest every strategy in the latest run and fetch papers/news.
+.venv/bin/quantcode check
+
+# Check one strategy from one run.
+.venv/bin/quantcode check run_025 --strategy "Post-Earnings Announcement Drift Momentum"
+
+# Limit source fetches for a faster check.
+.venv/bin/quantcode check runs/latest --papers 1 --news 1
+
+# Inspect and compact saved artifacts.
+.venv/bin/quantcode inspect runs/latest
+.venv/bin/quantcode compact runs/latest --budget 500
+```
+
+`check` is an evaluation aid, not deployment. It uses keyless EOD prices when reachable and
+prints a labelled simulated fallback if live price data is unavailable.
+
 ### 3. Real Redis memory + vector search (Docker)
 
 Tier 3 semantic memory uses RediSearch vector KNN, which needs **Redis Stack** (not vanilla
@@ -188,4 +252,3 @@ workspace/
 This project is for research and educational purposes only. It does not provide financial advice,
 trade recommendations, or live execution. Backtests can be misleading and do not guarantee future
 performance. The current architecture intentionally keeps execution and brokerage out of scope.
-
