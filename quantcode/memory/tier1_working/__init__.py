@@ -7,12 +7,12 @@ write. Store refs/ids to large artifacts (they live in `workspace/`), not copies
 from __future__ import annotations
 
 from quantcode.config import config
-from quantcode.memory.client import RedisMemory
+from quantcode.memory.client import MemoryClient
 from quantcode.schemas import TraceEvent
 
 
 class WorkingMemory:
-    def __init__(self, mem: RedisMemory) -> None:
+    def __init__(self, mem: MemoryClient) -> None:
         self._mem = mem
 
     def append(self, event: TraceEvent) -> None:

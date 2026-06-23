@@ -1,36 +1,27 @@
-"""RedisMemory — the shared client + key-builder for all three memory tiers (D2).
+"""MemoryClient — the shared client + key-builder for all three memory tiers.
 
-One connection from `config.redis_url`, one namespaced key schema, shared down to the
-tiers (the tiers never reinvent storage). Two backends behind one interface:
+One handle, one namespaced key schema, shared down to the tiers (the tiers never
+reinvent storage). Three interchangeable backends behind one interface:
 
-- **redis**: real `redis-py` + RediSearch vector index (the headline sponsor path).
-- **memory**: an in-process dict store with brute-force cosine search, so `demo` and
-  the self-check run with NO server.
+- **sqlite** (default): a local SQLite file. Persistent across runs, zero servers.
+- **memory**: an in-process dict store with brute-force cosine search, for `demo`
+  and the self-check (no file, no server).
+- **redis**: real `redis-py` + RediSearch vector index, opt-in for power users.
 
-Backend selection: env `QC_MEMORY_BACKEND=memory` forces the fallback; otherwise we try
-real Redis and fall back if it can't connect.
-
-🧑‍⚖️ HITL (D2): connecting to a non-local `redis_url` (e.g. Redis Cloud) is gated — we
-refuse unless `QC_ALLOW_REMOTE_REDIS=1` and fall back to in-memory with a clear message.
-We never flush or bulk-delete keys.
+Backend selection (env `QC_MEMORY_BACKEND`): `memory` → in-process; `redis` → Redis
+(falls back to sqlite if it can't connect); unset/`sqlite` → local SQLite file.
 """
 
 from __future__ import annotations
 
+import json
 import math
 import os
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
-from urllib.parse import urlparse
 
 from quantcode.config import config
 from quantcode.memory._embeddings import DIM
-
-_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "", None}
-
-
-def _is_local(redis_url: str) -> bool:
-    host = urlparse(redis_url).hostname
-    return host in _LOCAL_HOSTS
 
 
 def cosine(a: list[float], b: list[float]) -> float:
@@ -99,6 +90,77 @@ class InMemoryBackend:
 
     def knn(self, query_vec: list[float], k: int) -> list[tuple[str, float]]:
         scored = [(key, cosine(query_vec, vec)) for key, vec in self._vectors.items()]
+        scored.sort(key=lambda kv: kv[1], reverse=True)
+        return scored[:k]
+
+
+# --------------------------------------------------------------------------- #
+# Local SQLite backend (default — persistent, no server)
+# --------------------------------------------------------------------------- #
+class SQLiteBackend:
+    """A single local SQLite file. Same surface as InMemoryBackend, but durable across
+    runs. KNN is brute-force cosine in Python (fine for the hundreds of lessons a local
+    research workbench accumulates; swap in sqlite-vss only if that ever stops being true).
+    """
+
+    backend_name = "sqlite"
+
+    def __init__(self, path: str) -> None:
+        import sqlite3
+
+        Path(path).expanduser().parent.mkdir(parents=True, exist_ok=True)
+        self._db = sqlite3.connect(path, check_same_thread=False)
+        self._db.executescript(
+            "CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY, value TEXT);"
+            "CREATE TABLE IF NOT EXISTS lists(key TEXT, seq INTEGER, value TEXT);"
+            "CREATE TABLE IF NOT EXISTS vectors(key TEXT PRIMARY KEY, embedding TEXT);"
+        )
+        self._db.commit()
+
+    def get(self, key: str) -> str | None:
+        row = self._db.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def set_json(self, key: str, value: str) -> None:
+        self._db.execute(
+            "INSERT INTO kv(key, value) VALUES(?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+        self._db.commit()
+
+    def keys(self, pattern: str) -> list[str]:
+        prefix = pattern.rstrip("*")
+        rows = self._db.execute("SELECT key FROM kv WHERE key LIKE ?", (prefix + "%",)).fetchall()
+        return [r[0] for r in rows]
+
+    def rpush_ttl(self, key: str, value: str, ttl: int) -> None:
+        # ponytail: TTL ignored — working-trace rows are per-run and tiny. Add a sweep
+        # (DELETE WHERE written_at < ?) only if a long-lived db actually grows unbounded.
+        (next_seq,) = self._db.execute(
+            "SELECT COALESCE(MAX(seq), -1) + 1 FROM lists WHERE key=?", (key,)
+        ).fetchone()
+        self._db.execute("INSERT INTO lists(key, seq, value) VALUES(?, ?, ?)", (key, next_seq, value))
+        self._db.commit()
+
+    def lrange(self, key: str) -> list[str]:
+        rows = self._db.execute(
+            "SELECT value FROM lists WHERE key=? ORDER BY seq", (key,)
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def index_lesson(self, key: str, payload: str, embedding: list[float]) -> None:
+        self.set_json(key, payload)
+        self._db.execute(
+            "INSERT INTO vectors(key, embedding) VALUES(?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET embedding=excluded.embedding",
+            (key, json.dumps(embedding)),
+        )
+        self._db.commit()
+
+    def knn(self, query_vec: list[float], k: int) -> list[tuple[str, float]]:
+        rows = self._db.execute("SELECT key, embedding FROM vectors").fetchall()
+        scored = [(key, cosine(query_vec, json.loads(emb))) for key, emb in rows]
         scored.sort(key=lambda kv: kv[1], reverse=True)
         return scored[:k]
 
@@ -189,7 +251,7 @@ class RedisBackend:
 # --------------------------------------------------------------------------- #
 # Facade: key-builder + backend selection
 # --------------------------------------------------------------------------- #
-class RedisMemory:
+class MemoryClient:
     """Shared client wrapper. Owns the namespaced key schema and the chosen backend."""
 
     def __init__(self, backend: _Backend, namespace: str) -> None:
@@ -224,29 +286,28 @@ class RedisMemory:
 
     # --- construction --------------------------------------------------------
     @classmethod
-    def connect(cls) -> RedisMemory:
-        """Select a backend per D2. Forced/failed/gated -> in-memory fallback."""
-        ns = config.redis_namespace
-        forced = os.getenv("QC_MEMORY_BACKEND", "").strip().lower()
-        if forced == "memory":
+    def connect(cls) -> MemoryClient:
+        """Pick a backend from QC_MEMORY_BACKEND. Default: local SQLite file."""
+        ns = config.namespace
+        choice = os.getenv("QC_MEMORY_BACKEND", "").strip().lower()
+
+        if choice == "memory":
             return cls(InMemoryBackend(), ns)
 
-        # 🧑‍⚖️ HITL: refuse remote Redis unless explicitly allowed.
-        if not _is_local(config.redis_url) and os.getenv("QC_ALLOW_REMOTE_REDIS") != "1":
-            print(
-                "[memory] refusing remote Redis "
-                f"({urlparse(config.redis_url).hostname!r}) without QC_ALLOW_REMOTE_REDIS=1 "
-                "(HITL gate, D2) — using in-memory fallback."
-            )
-            return cls(InMemoryBackend(), ns)
+        if choice == "redis":
+            try:
+                import redis
 
+                client = redis.Redis.from_url(config.redis_url)
+                client.ping()
+                backend: _Backend = RedisBackend(client, f"{ns}:index:lessons", f"{ns}:lesson:")
+                return cls(backend, ns)
+            except Exception as exc:  # noqa: BLE001 — no server / no RediSearch -> sqlite
+                print(f"[memory] Redis unavailable ({exc}); using local SQLite instead.")
+
+        # default: persistent local SQLite (no server, no API keys).
         try:
-            import redis
-
-            client = redis.Redis.from_url(config.redis_url)
-            client.ping()
-            backend: _Backend = RedisBackend(client, f"{ns}:index:lessons", f"{ns}:lesson:")
-            return cls(backend, ns)
-        except Exception as exc:  # noqa: BLE001 — no server / no RediSearch -> fallback
-            print(f"[memory] Redis unavailable ({exc}); using in-memory fallback.")
+            return cls(SQLiteBackend(config.db_path), ns)
+        except Exception as exc:  # noqa: BLE001 — unwritable path etc. -> in-process
+            print(f"[memory] SQLite unavailable ({exc}); using in-memory store.")
             return cls(InMemoryBackend(), ns)

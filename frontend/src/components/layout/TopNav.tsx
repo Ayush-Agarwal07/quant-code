@@ -40,9 +40,9 @@ export function TopNav() {
 
       {/* Status pills — sourced from /overview */}
       <div className="mr-3 hidden items-center gap-4 font-mono text-[10px] uppercase tracking-widest text-muted-foreground lg:flex">
-        <span>
+        <Link href="/memory" className="transition-colors hover:text-foreground">
           Backend <span className="text-foreground">{overview?.backend ?? "—"}</span>
-        </span>
+        </Link>
         <span>
           LLM <span className="text-foreground">{overview?.llm_provider ?? "—"}</span>
         </span>

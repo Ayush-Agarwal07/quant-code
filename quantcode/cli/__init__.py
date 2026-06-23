@@ -751,14 +751,14 @@ def compact(
 @app.command("research-url")
 def research_url(
     url: str,
-    confirm: bool = typer.Option(False, help="Confirm the live Browserbase fetch (HITL)."),
+    confirm: bool = typer.Option(False, help="Confirm the live fetch (HITL)."),
     promote: bool = typer.Option(False, help="Promote lessons to Tier 3 (HITL approval)."),
 ) -> None:
-    """Research prior art from a URL via Browserbase, then run the pipeline."""
+    """Research prior art from a URL, then run the pipeline."""
     if not confirm:
         console.print(
-            "[yellow]Live fetch is HITL-gated.[/yellow] A Browserbase fetch spends credits and "
-            f"scrapes {url}. Re-run with [bold]--confirm[/bold] to proceed."
+            "[yellow]Live fetch is HITL-gated.[/yellow] This scrapes "
+            f"{url}. Re-run with [bold]--confirm[/bold] to proceed."
         )
         raise typer.Exit(0)
     try:

@@ -14,7 +14,7 @@ import os
 from dataclasses import dataclass, field
 
 from quantcode.lesson_quality import TIER3_MIN_CONFIDENCE, is_tier3_signal
-from quantcode.memory.client import RedisMemory
+from quantcode.memory.client import MemoryClient
 from quantcode.memory.tier2_episodic import EpisodicMemory
 from quantcode.memory.tier3_semantic import SemanticMemory
 from quantcode.schemas import EpisodeRecord, Lesson
@@ -32,7 +32,7 @@ class CurationResult:
 
 
 class MemoryCurator:
-    def __init__(self, mem: RedisMemory) -> None:
+    def __init__(self, mem: MemoryClient) -> None:
         self._mem = mem
         self._tier2 = EpisodicMemory(mem)
         self._tier3 = SemanticMemory(mem)

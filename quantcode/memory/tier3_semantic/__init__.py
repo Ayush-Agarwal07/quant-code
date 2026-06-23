@@ -1,21 +1,21 @@
-"""Tier 3 — Semantic Lessons + vector search (★ the Redis pitch).
+"""Tier 3 — Semantic Lessons + vector search.
 
-Each lesson is stored at `qc:lesson:{lesson_id}` with a 384-d embedding and indexed in
-`qc:index:lessons`. `search()` runs KNN: real RediSearch server-side, brute-force cosine
-on the in-memory fallback. Embeddings via fastembed (D3) with a deterministic hash
-fallback. Provenance (`source_run_id`) rides along so the demo can show *why* a warning
-exists.
+Each lesson is stored at `qc:lesson:{lesson_id}` with a 384-d embedding. `search()` runs
+KNN: brute-force cosine on the sqlite/in-memory backends, RediSearch server-side on Redis.
+Embeddings default to a deterministic hash; install the `[embeddings]` extra for real
+semantic vectors (fastembed). Provenance (`source_run_id`) rides along so the UI can show
+*why* a warning exists.
 """
 
 from __future__ import annotations
 
 from quantcode.memory._embeddings import embed
-from quantcode.memory.client import RedisMemory
+from quantcode.memory.client import MemoryClient
 from quantcode.schemas import Lesson
 
 
 class SemanticMemory:
-    def __init__(self, mem: RedisMemory) -> None:
+    def __init__(self, mem: MemoryClient) -> None:
         self._mem = mem
 
     def write_lesson(self, lesson: Lesson) -> Lesson:

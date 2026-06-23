@@ -1,7 +1,8 @@
-"""Browserbase-powered `research-url` path: URL → PriorArtTheme.
+"""The `research-url` path: URL → PriorArtTheme.
 
-Exports `BrowserResearcherAgent`. The live fetch is HITL-gated and lazy-imports the
-Browserbase SDK + Playwright; the deterministic offline extraction needs neither.
+Exports `BrowserResearcherAgent`. The live fetch is HITL-gated and uses a stdlib HTTP
+GET by default (optional local Playwright for JS pages); the deterministic offline
+extraction needs neither.
 """
 
 from __future__ import annotations

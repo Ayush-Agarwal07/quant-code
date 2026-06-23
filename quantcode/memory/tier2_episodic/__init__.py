@@ -6,12 +6,12 @@ packet, with retrieval/produced-lesson provenance. Powers the cross-run comparis
 
 from __future__ import annotations
 
-from quantcode.memory.client import RedisMemory
+from quantcode.memory.client import MemoryClient
 from quantcode.schemas import EpisodeRecord
 
 
 class EpisodicMemory:
-    def __init__(self, mem: RedisMemory) -> None:
+    def __init__(self, mem: MemoryClient) -> None:
         self._mem = mem
 
     def write_episode(self, episode: EpisodeRecord) -> None:

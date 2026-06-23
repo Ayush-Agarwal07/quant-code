@@ -1,8 +1,8 @@
 """Offline self-check: `.venv/bin/python -m quantcode.browser`.
 
 Asserts the deterministic extraction path works and the live path stays HITL-gated —
-WITHOUT importing browserbase/playwright (proves the offline path is dependency-free).
-Runs fully offline.
+WITHOUT importing playwright (proves the offline path is dependency-free). Runs fully
+offline.
 """
 
 from __future__ import annotations
@@ -40,13 +40,13 @@ def main() -> int:
     theme = themes[0]
     assert isinstance(theme, PriorArtTheme)
     assert theme.source_url == _FIXTURE_URL, "source_url must be set to the input url"
-    assert theme.source_type == "browserbase_url"
+    assert theme.source_type == "web_url"
     assert theme.theme and theme.summary and theme.mechanism_type
     assert theme.required_data and theme.known_risks
     assert 0.0 <= theme.confidence <= 1.0
     assert theme.mechanism_type == "momentum", "fixture should classify as momentum"
 
-    # 2. Live path is HITL-gated: confirm=False raises and does NOT import browserbase.
+    # 2. Live path is HITL-gated: confirm=False raises and does NOT import playwright.
     try:
         agent.run_url(_FIXTURE_URL, confirm=False)
     except PermissionError as exc:
@@ -54,7 +54,6 @@ def main() -> int:
     else:  # pragma: no cover - the gate must fire
         raise AssertionError("run_url(confirm=False) must raise the HITL gate error")
 
-    assert "browserbase" not in sys.modules, "offline self-check must NOT import browserbase"
     assert "playwright" not in sys.modules, "offline self-check must NOT import playwright"
 
     print("quantcode.browser self-check OK")
@@ -62,7 +61,7 @@ def main() -> int:
     print(f"  mechanism     = {theme.mechanism_type}")
     print(f"  source_url    = {theme.source_url}")
     print(f"  known_risks   = {theme.known_risks}")
-    print("  run_url(confirm=False) → HITL-gated (no browserbase import)")
+    print("  run_url(confirm=False) → HITL-gated (no playwright import)")
     return 0
 
 

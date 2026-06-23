@@ -1,31 +1,27 @@
-"""BrowserResearcherAgent — the `research-url <url>` path (Browserbase track).
+"""BrowserResearcherAgent — the `research-url <url>` path.
 
 Two paths, one schema boundary (URL → PriorArtTheme → normal pipeline, never a raw
-hypothesis — see docs/agent_flow.md "Browserbase Path"):
+hypothesis):
 
 - `extract_from_html` — DETERMINISTIC, offline, stdlib-only (`html.parser`, no bs4).
   This is the demo + self-check path and the body shared with the live path.
-- `run_url` — the LIVE Browserbase fetch (Python SDK + Playwright `connect_over_cdp`).
-  🧑‍⚖️ HITL-gated: a live fetch spends Browserbase credits and scrapes a real site, so
-  it requires BOTH `confirm=True` AND `config.browserbase_api_key`. `browserbase` /
-  `playwright` are LAZY-imported inside `run_url` only (not installed by default; never
-  imported at module top so the offline path always works).
+- `run_url` — the LIVE fetch. By default a plain stdlib HTTP GET (no API keys, no paid
+  service). For JS-rendered pages, set `QC_BROWSER_RENDER=1` and install the `[browser]`
+  extra to drive a local headless Playwright Chromium instead.
+  🧑‍⚖️ HITL-gated: a live fetch hits a real site, so it requires `confirm=True`. The
+  human confirms robots/ToS before any live target.
 
-Decisions taken (browser/README open questions, resolved per the build brief):
-- Browserbase product = Python SDK + Playwright (sponsor refs; NOT Stagehand).
-- Extraction = deterministic for v1 (a real-LLM enrich can come later via quantcode.llm).
-- URL allow-list = each demo URL is human-confirmed through the `confirm` gate (no static
-  list); robots/ToS posture is the human's call before any live target.
+Extraction is deterministic for v1 (a real-LLM enrich can come later via quantcode.llm).
 """
 
 from __future__ import annotations
 
+import os
 from html.parser import HTMLParser
 
-from quantcode.config import config
 from quantcode.schemas import PriorArtTheme
 
-SOURCE_TYPE = "browserbase_url"
+SOURCE_TYPE = "web_url"
 
 # ponytail: tiny keyword map is enough to label a mechanism deterministically for v1;
 # a real-LLM classifier is the later enrich step, not needed for the schema boundary.
@@ -155,51 +151,53 @@ class BrowserResearcherAgent:
             )
         ]
 
-    def run_url(self, url: str, *, confirm: bool = False) -> list[PriorArtTheme]:
-        """LIVE Browserbase fetch of `url` → PriorArtTheme(s) via `extract_from_html`.
+    def fetch_and_extract(self, url: str) -> list[PriorArtTheme]:
+        """Programmatic live fetch — no HITL gate. Used from within the pipeline.
 
-        🧑‍⚖️ HITL-gated. Requires BOTH `confirm=True` AND `config.browserbase_api_key`.
-        `browserbase` + `playwright` are imported INSIDE this method so the gate and the
-        offline path never depend on them.
+        Off by default: returns [] unless `QC_BROWSER_FETCH=1`, so `quantcode strategy`
+        stays offline/deterministic and callers fall back to a metadata-only theme. The
+        CLI `research-url` command uses `run_url` (which adds the confirm gate).
+        """
+        if not os.getenv("QC_BROWSER_FETCH"):
+            return []
+        return self.extract_from_html(self._fetch_html(url), url)
+
+    def run_url(self, url: str, *, confirm: bool = False) -> list[PriorArtTheme]:
+        """LIVE fetch of `url` → PriorArtTheme(s) via `extract_from_html`.
+
+        🧑‍⚖️ HITL-gated: requires `confirm=True` because it hits a real site (confirm
+        robots/ToS first). No API keys — a plain stdlib GET, or local Playwright if
+        `QC_BROWSER_RENDER=1`.
         """
         if not confirm:
             raise PermissionError(
-                "live fetch is HITL-gated; pass confirm=True to spend Browserbase "
-                "credits and scrape a real site (confirm robots/ToS first)."
+                "live fetch is HITL-gated; pass confirm=True to scrape a real site "
+                "(confirm robots/ToS first)."
             )
-        if not config.browserbase_api_key:
-            raise RuntimeError(
-                "BROWSERBASE_API_KEY is unset — refusing to run_url. The Browserbase "
-                "track requires a real Browserbase session; we do NOT fall back to plain "
-                "HTTP (that would void the bounty)."
-            )
-
-        html = self._fetch_html(url)
-        return self.extract_from_html(html, url)
+        return self.extract_from_html(self._fetch_html(url), url)
 
     def _fetch_html(self, url: str) -> str:
-        """Open a Browserbase session and drive it with Playwright over CDP.
+        """Fetch page HTML. Default: stdlib HTTP GET. `QC_BROWSER_RENDER=1`: local Playwright.
 
-        Lazy imports keep `browserbase`/`playwright` out of the module-import path (they're
-        the optional `[browser]` extra); mypy treats them as missing-OK via the pyproject
-        override, alongside the other optional deps.
+        The Playwright branch is lazy-imported so it stays an optional `[browser]` extra and
+        the default path needs no third-party deps. mypy treats `playwright` as missing-OK
+        via the pyproject override.
         """
-        from browserbase import Browserbase
-        from playwright.sync_api import sync_playwright
+        if os.getenv("QC_BROWSER_RENDER"):
+            from playwright.sync_api import sync_playwright
 
-        project_id = config.browserbase_project_id
-        if not project_id:
-            raise RuntimeError(
-                "BROWSERBASE_PROJECT_ID is unset — a Browserbase session needs a project id "
-                "(dashboard → Settings → Projects, or resolve it from the API key)."
-            )
-        bb = Browserbase(api_key=config.browserbase_api_key)
-        session = bb.sessions.create(project_id=project_id)
-        with sync_playwright() as pw:
-            browser = pw.chromium.connect_over_cdp(session.connect_url)
-            try:
-                page = browser.contexts[0].pages[0]
-                page.goto(url)
-                return page.content()
-            finally:
-                browser.close()
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch(headless=True)
+                try:
+                    page = browser.new_page()
+                    page.goto(url)
+                    return page.content()
+                finally:
+                    browser.close()
+
+        import urllib.request
+
+        req = urllib.request.Request(url, headers={"User-Agent": "quantcode-research/0.1"})
+        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 — http(s) only
+            charset = resp.headers.get_content_charset() or "utf-8"
+            return resp.read().decode(charset, errors="replace")

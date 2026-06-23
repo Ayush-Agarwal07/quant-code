@@ -1,10 +1,12 @@
-"""Lesson embeddings for Tier 3 vector search (D3).
+"""Lesson embeddings for Tier 3 vector search.
 
-Real path: `fastembed` BAAI/bge-small-en-v1.5 (384-d), loaded lazily on first use.
-Fallback: a deterministic 384-d hash-embedding so `demo`/self-check never break when
-the model isn't downloaded or there's no network. The fallback is NOT semantic — it
-only makes store+search return *something*; paraphrase ranking only holds on the real
-model (the self-check skips that assertion when fastembed can't load).
+Default: a deterministic 384-d hash-embedding — no model download, no network, works
+out of the box. It is NOT semantic (it only makes store+search return stable, ranked
+results), so paraphrase matching is exact/near-exact only.
+
+Opt-in (`pip install '.[embeddings]'`): `fastembed` BAAI/bge-small-en-v1.5 (384-d),
+loaded lazily on first use, gives real semantic ranking. When installed it is used
+automatically; otherwise the hash default applies.
 """
 
 from __future__ import annotations

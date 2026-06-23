@@ -16,14 +16,14 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
 ]
+# Core install is fully local & free — no servers, no API keys. Memory persists to a
+# local SQLite file; lesson embeddings use a deterministic hash; URL fetch is a stdlib GET.
 dependencies = [
   "pydantic>=2.7,<3",
   "python-dotenv>=1.0,<2",
   "rich>=13.7,<15",
   "typer>=0.12,<1",
-  "redis>=5.0,<7",         # D2: memory substrate + RediSearch vector index
-  "fastembed>=0.3,<1",     # D3: Tier 3 lesson embeddings (offline ONNX)
-  "pyyaml>=6,<7",          # D6: StrategySpec YAML I/O
+  "pyyaml>=6,<7",          # StrategySpec YAML I/O
 ]
 
 [project.optional-dependencies]
@@ -33,14 +33,22 @@ dev = [
   "ruff>=0.5,<1",
   "types-PyYAML>=6,<7",
 ]
-# D1: real Claude path — lazy-imported, installed only when leaving mock (HITL-gated 1st call)
+# Real semantic embeddings (BAAI/bge-small via offline ONNX) + measured token counts.
+embeddings = [
+  "fastembed>=0.3,<1",
+]
+# Real Claude path — lazy-imported, installed only when leaving the mock provider.
 llm = [
   "anthropic>=0.40,<1",
 ]
-# Browserbase research-url track (Phase 2) — also needs `playwright install chromium`
+# JS-rendered page scraping for `research-url` (set QC_BROWSER_RENDER=1). No paid service;
+# also needs `playwright install chromium`. The default fetch is a plain stdlib GET.
 browser = [
-  "browserbase>=1.0,<2",
   "playwright>=1.44,<2",
+]
+# Optional Redis + RediSearch memory backend (QC_MEMORY_BACKEND=redis).
+redis = [
+  "redis>=5.0,<7",
 ]
 
 [project.scripts]
@@ -73,5 +81,5 @@ exclude = ["tests/"]
 
 # Optional / unstubbed third-party deps (installed conditionally or ship no stubs)
 [[tool.mypy.overrides]]
-module = ["anthropic.*", "fastembed.*", "browserbase.*", "playwright.*"]
+module = ["anthropic.*", "fastembed.*", "playwright.*", "redis.*"]
 ignore_missing_imports = true

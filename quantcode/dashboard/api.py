@@ -183,6 +183,7 @@ class CommandRequest(BaseModel):
     adjustments: StrategyAdjustments | None = None
     starting_cash: float = 100000.0
     reset: bool = False
+    source_url: str | None = None
 
 
 def _alert_tag(universe: str) -> Literal["FX", "CRYPTO", "RATES", "EQUITY", "MACRO"]:
@@ -576,9 +577,20 @@ def _run_command_job(job_id: str, payload: dict[str, Any]) -> None:
                 objective = (request.objective or "").strip()
                 if not objective:
                     raise ValueError("objective is required")
-                from quantcode.pipeline import run_research
 
-                packet = run_research(objective, promote=request.promote)
+                if request.source_url and request.source_url.strip():
+                    from quantcode.pipeline import run_from_url
+
+                    packet = run_from_url(
+                        request.source_url.strip(),
+                        objective=objective,
+                        confirm=True,
+                        promote=request.promote,
+                    )
+                else:
+                    from quantcode.pipeline import run_research
+
+                    packet = run_research(objective, promote=request.promote)
                 _JOBS[job_id].update(
                     status="done",
                     run_id=packet.run_id,

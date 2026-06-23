@@ -1,13 +1,12 @@
-"""Reproducible token counting for the ResearchTrace Compiler (decision D7).
+"""Reproducible token counting for the ResearchTrace Compiler.
 
-The Token-Company headline metric must be MEASURED, never a bare word count. We count
-with a real subword tokenizer — the BAAI/bge-small tokenizer that `fastembed` already
-pulls in (no new dependency; it ships the `tokenizers` lib). The tokenizer file is loaded
-OFFLINE from the local HuggingFace cache so counts are deterministic and stage-safe.
+Compaction metrics should be MEASURED, not a bare word count. When the `[embeddings]`
+extra is installed it brings the `tokenizers` lib + BAAI/bge-small tokenizer, which we
+load OFFLINE from the local HuggingFace cache for deterministic subword counts.
 
-If the tokenizer cannot be loaded offline (cold cache, no network on the demo box), we
-fall back to a CLEARLY-LABELED heuristic estimate and set `tokens_estimated=True` so the
-pitch never publishes an unlabeled number. Real tokenizer is always tried first.
+Without it (the default install), we fall back to a CLEARLY-LABELED heuristic estimate
+and set `estimated=True` so no number is ever published as measured when it isn't. The
+real tokenizer is always tried first.
 """
 
 from __future__ import annotations

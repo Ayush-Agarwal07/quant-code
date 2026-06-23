@@ -73,6 +73,7 @@ export function CommandCard({
   const [job, setJob] = useState<AgentCommandJob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [objective, setObjective] = useState(request.objective ?? "");
+  const [sourceUrl, setSourceUrl] = useState(request.source_url ?? "");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "done" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [manualAdjustments, setManualAdjustments] = useState<StrategyAdjustments>({});
@@ -104,7 +105,7 @@ export function CommandCard({
     setSaveError(null);
     try {
       const payload = isStrategy
-        ? { ...request, objective: objective.trim() || request.objective }
+        ? { ...request, objective: objective.trim() || request.objective, source_url: sourceUrl.trim() || null }
         : adjustments
           ? { ...request, adjustments }
           : request;
@@ -183,13 +184,22 @@ export function CommandCard({
       <p className="mt-1 text-[12.5px] leading-relaxed text-foreground/85">{detail}</p>
 
       {isStrategy && (phase === "idle" || phase === "confirm") && (
-        <textarea
-          value={objective}
-          onChange={(e) => setObjective(e.target.value)}
-          rows={2}
-          placeholder="Research objective… (leave blank for the default)"
-          className="mt-2 w-full resize-none rounded border border-border bg-background px-2 py-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-foreground/40"
-        />
+        <>
+          <textarea
+            value={objective}
+            onChange={(e) => setObjective(e.target.value)}
+            rows={2}
+            placeholder="Research objective… (leave blank for the default)"
+            className="mt-2 w-full resize-none rounded border border-border bg-background px-2 py-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-foreground/40"
+          />
+          <input
+            type="url"
+            value={sourceUrl}
+            onChange={(e) => setSourceUrl(e.target.value)}
+            placeholder="Browserbase URL — paste a paper or page to seed prior art (optional)"
+            className="mt-1.5 w-full rounded border border-border bg-background px-2 py-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-foreground/40"
+          />
+        </>
       )}
 
       {phase === "idle" && (

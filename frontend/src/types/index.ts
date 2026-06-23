@@ -411,6 +411,7 @@ export interface AgentCommandRequest {
   adjustments?: StrategyAdjustments;
   starting_cash?: number;
   reset?: boolean;
+  source_url?: string | null;
 }
 
 export interface PaperSignal {

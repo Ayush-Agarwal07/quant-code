@@ -26,7 +26,7 @@ from rich.table import Table
 from quantcode.compaction import ResearchTraceCompiler
 from quantcode.memory import Memory
 from quantcode.memory._embeddings import using_real_model
-from quantcode.memory.client import InMemoryBackend, RedisMemory
+from quantcode.memory.client import InMemoryBackend, MemoryClient
 from quantcode.schemas import Lesson, TraceEvent
 
 console = Console()
@@ -172,7 +172,7 @@ _RETRIEVAL_SET: list[tuple[str, str, str]] = [
 
 
 def bench_retrieval(k: int = 3) -> dict[str, float]:
-    mem = Memory(RedisMemory(InMemoryBackend(), "bench"))  # deterministic, no server
+    mem = Memory(MemoryClient(InMemoryBackend(), "bench"))  # deterministic, no server
     for idx, (label, text, _) in enumerate(_RETRIEVAL_SET):
         mem.semantic.write_lesson(
             Lesson(lesson_id=f"bench:{label}", text=text, kind="warning", source_run_id=f"r{idx}")
